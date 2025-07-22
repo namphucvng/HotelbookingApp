@@ -117,8 +117,8 @@ class _BottomnavState extends State<Bottomnav> {
                     onTap: () => _onItemTapped(0),
                   ),
                   _buildNavButton(
-                    icon: Icons.search,
-                    label: 'Tìm kiếm',
+                    icon: Icons.favorite,
+                    label: 'Yêu thích',
                     active: currentTabIndex == 1,
                     onTap: () => _onItemTapped(1),
                   ),

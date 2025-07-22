@@ -1,3 +1,4 @@
+import 'package:bookingapp/pages/danhgia.dart';
 import 'package:bookingapp/pages/edit_booking.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -17,7 +18,7 @@ class _HistoryState extends State<History> with SingleTickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 4, vsync: this);
   }
 
   @override
@@ -39,12 +40,14 @@ class _HistoryState extends State<History> with SingleTickerProviderStateMixin {
         ),
         bottom: TabBar(
           controller: _tabController,
+          isScrollable: true,
           labelColor: Colors.deepPurple,
           unselectedLabelColor: const Color(0xFF666666),
           tabs: const [
             Tab(text: 'Chờ xác nhận'),
             Tab(text: 'Đã xác nhận'),
             Tab(text: 'Đã thực hiện'),
+            Tab(text: 'Đã hủy'),
           ],
         ),
         iconTheme: const IconThemeData(color: Colors.deepPurple),
@@ -55,6 +58,7 @@ class _HistoryState extends State<History> with SingleTickerProviderStateMixin {
           _buildBookingList('pending'),
           _buildBookingList('confirmed'),
           _buildBookingList('completed'),
+          _buildBookingList('cancelled'),
         ],
       ),
     );
@@ -131,9 +135,9 @@ class _HistoryState extends State<History> with SingleTickerProviderStateMixin {
                                 style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                               ),
                             ),
-                            if (status == 'pending')
-                              Row(
-                                children: [
+                            Row(
+                              children: [
+                                if (status == 'pending') ...[
                                   TextButton(
                                     onPressed: () => _editBooking(data),
                                     child: const Text(
@@ -149,7 +153,17 @@ class _HistoryState extends State<History> with SingleTickerProviderStateMixin {
                                     ),
                                   ),
                                 ],
-                              ),
+                                if (status == 'completed') ...[
+                                  TextButton(
+                                    onPressed: () => _navigateToRating(data),
+                                    child: const Text(
+                                      'Đánh giá',
+                                      style: TextStyle(color: Colors.deepPurple, fontWeight: FontWeight.bold),
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
                           ],
                         ),
                         const SizedBox(height: 6),
@@ -225,6 +239,8 @@ class _HistoryState extends State<History> with SingleTickerProviderStateMixin {
         return Colors.blue;
       case 'completed':
         return Colors.green;
+      case 'cancelled':
+        return Colors.red;
       default:
         return Colors.grey;
     }
@@ -238,6 +254,8 @@ class _HistoryState extends State<History> with SingleTickerProviderStateMixin {
         return 'Đã xác nhận';
       case 'completed':
         return 'Đã thực hiện';
+      case 'cancelled':
+        return 'Đã hủy';
       default:
         return 'Không rõ';
     }
@@ -259,10 +277,15 @@ class _HistoryState extends State<History> with SingleTickerProviderStateMixin {
             onPressed: () async {
               Navigator.pop(context); // đóng dialog
               try {
-                await FirebaseFirestore.instance.collection('dat_lich').doc(docId).delete();
+                await FirebaseFirestore.instance
+                    .collection('dat_lich')
+                    .doc(docId)
+                    .update({'status': 'cancelled'}); // ⚠️ Cập nhật thay vì xóa
+
                 if (mounted) {
-                  setState(() {}); // cập nhật lại danh sách
+                  setState(() {});
                 }
+
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(content: Text('Đã huỷ đơn đặt phòng')),
                 );
@@ -293,5 +316,16 @@ class _HistoryState extends State<History> with SingleTickerProviderStateMixin {
     if (result == true && mounted) {
       setState(() {}); // Cập nhật lại danh sách sau khi chỉnh sửa
     }
+  }
+
+  void _navigateToRating(Map<String, dynamic> booking) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => DanhGiaPage(
+          bookingData: booking,
+        ),
+      ),
+    );
   }
 }

@@ -48,6 +48,7 @@ const List<Map<String, String>> services = [
 
 class _HomeState extends State<Home> {
   int _selectedTab = 0;
+  String _searchKeyword = '';
 
   // ngoc them
   final Set<String> _selectedAmenities = {};   // lưu các tiện nghi đang được chọn
@@ -64,7 +65,13 @@ class _HomeState extends State<Home> {
     return SafeArea(
       child: Column(
         children: [
-          const SearchBar(),
+          SearchBar(
+            onChanged: (value) {
+              setState(() {
+                _searchKeyword = value.toLowerCase();
+              });
+            },
+          ),
           Tabs(
             tabs: tabs,
             selectedIndex: _selectedTab,
@@ -79,7 +86,7 @@ class _HomeState extends State<Home> {
               child: Container(
                 color: Colors.white,
                 child: _selectedTab == 0
-                    ? const StaysTabContent()
+                    ? StaysTabContent(searchKeyword: _searchKeyword)
                     : _selectedTab == 1
                         ? const ExperiencesSection()
                         : const ServicesSection(),
@@ -103,7 +110,8 @@ String formatCurrency(String priceString) {
 }
 
 class SearchBar extends StatelessWidget {
-  const SearchBar({super.key});
+  final ValueChanged<String> onChanged;
+  const SearchBar({super.key, required this.onChanged});
 
   @override
   Widget build(BuildContext context) {
@@ -123,13 +131,17 @@ class SearchBar extends StatelessWidget {
         ),
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
         child: Row(
-          children: const [
-            Icon(Icons.search, size: 20, color: Colors.black),
-            SizedBox(width: 8),
+          children: [
+            const Icon(Icons.search, size: 20, color: Colors.black),
+            const SizedBox(width: 8),
             Expanded(
-              child: Text(
-                'Tìm kiếm',
-                style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16, color: Colors.black),
+              child: TextField(
+                onChanged: onChanged,
+                decoration: const InputDecoration(
+                  hintText: 'Tìm kiếm',
+                  border: InputBorder.none,
+                  isDense: true,
+                ),
               ),
             ),
           ],
@@ -138,6 +150,7 @@ class SearchBar extends StatelessWidget {
     );
   }
 }
+
 
 class TabItem {
   final IconData icon;
@@ -203,7 +216,9 @@ class Tabs extends StatelessWidget {
 }
 
 class StaysTabContent extends StatelessWidget {
-  const StaysTabContent({super.key});
+  final String searchKeyword;
+
+  const StaysTabContent({super.key, required this.searchKeyword});
 
   @override
   Widget build(BuildContext context) {
@@ -248,7 +263,12 @@ class StaysTabContent extends StatelessWidget {
             final branchId = branchDoc.id;
             final rooms = branchRoomsMap[branchId] ?? [];
 
-            final cards = rooms.map((roomDoc) {
+            final filteredRooms = rooms.where((roomDoc) {
+              final roomName = (roomDoc.data()['name'] ?? '').toString().toLowerCase();
+              return roomName.contains(searchKeyword);
+            }).toList();
+
+            final cards = filteredRooms.map((roomDoc) {
               final roomData = roomDoc.data();
               final imageUrls = roomData['imageUrls'] ?? [];
               final String imageUrl = (imageUrls.isNotEmpty) ? imageUrls[0] : '';

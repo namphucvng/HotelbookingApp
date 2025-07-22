@@ -1,3 +1,4 @@
+import 'package:bookingapp/hotelowner/ad_home_page.dart';
 import 'package:bookingapp/hotelowner/addbranch.dart';
 import 'package:bookingapp/hotelowner/addroom.dart';
 import 'package:bookingapp/hotelowner/addroomtype.dart';
@@ -17,6 +18,9 @@ import 'package:bookingapp/sceens/dinhvi.dart';
 import 'package:bookingapp/sceens/theodoixe.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+
 
 //ngoc them
 import 'package:flutter/material.dart';
@@ -27,13 +31,12 @@ import 'models/favorite_provider.dart';             // Yêu thích
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
-  
 
   runApp(
     MultiProvider(
       providers: [
         ChangeNotifierProvider(
-          create: (_) => FavoriteProvider()..loadFavorites(), // Load danh sách yêu thích khi app khởi động
+          create: (_) => FavoriteProvider()..loadFavorites(),
         ),
       ],
       child: const MyApp(),
@@ -44,28 +47,79 @@ void main() async {
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
-  // This widget is the root of your application.
+  @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Booking',
+      title: 'Booking App',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(primarySwatch: Colors.deepPurple),
-      
-      // ⚠️ CẦN THÊM ĐOẠN NÀY ĐỂ HỖ TRỢ VI (tiếng Việt) CHO DatePicker
       localizationsDelegates: const [
         GlobalMaterialLocalizations.delegate,
         GlobalWidgetsLocalizations.delegate,
         GlobalCupertinoLocalizations.delegate,
       ],
       supportedLocales: const [
-        Locale('vi', 'VN'), // Tiếng Việt
-        Locale('en', 'US'), // Tiếng Anh (dự phòng)
+        Locale('vi', 'VN'),
+        Locale('en', 'US'),
       ],
-      
-      home: const SplashScreen(),
+      home: const RootPage(),
     );
   }
 }
+
+class RootPage extends StatelessWidget {
+  const RootPage({super.key});
+
+  Future<String?> _getUserRoleWithDelay(String uid) async {
+    await Future.delayed(const Duration(seconds: 5)); // Hiển thị splash tối thiểu 2s
+    final doc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
+    if (doc.exists) {
+      return doc.data()?['role'] ?? 'user';
+    }
+    return null;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<User?>(
+      stream: FirebaseAuth.instance.authStateChanges(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const SplashScreen();
+        }
+
+        final user = snapshot.data;
+
+        if (user == null) {
+          return const LogIn(); // chưa đăng nhập
+        }
+
+        return FutureBuilder<String?>(
+          future: _getUserRoleWithDelay(user.uid),
+          builder: (context, roleSnapshot) {
+            if (roleSnapshot.connectionState == ConnectionState.waiting) {
+              return const SplashScreen(); // vẫn splash
+            }
+
+            if (roleSnapshot.hasError) {
+              return const Scaffold(body: Center(child: Text('Lỗi khi lấy quyền người dùng.')));
+            }
+
+            final role = roleSnapshot.data;
+
+            if (role == 'admin') {
+              return const AdminHomePage();
+            } else {
+              return const Bottomnav();
+            }
+          },
+        );
+      },
+    );
+  }
+}
+
+
 
 class MyHomePage extends StatefulWidget {
   const MyHomePage({super.key, required this.title});
