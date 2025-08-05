@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:http/http.dart' as http;
+import 'package:flutter_image_compress/flutter_image_compress.dart';
 
 class AddHotelRoomPage extends StatefulWidget {
   const AddHotelRoomPage({super.key});
@@ -29,7 +30,7 @@ class _AddHotelRoomPageState extends State<AddHotelRoomPage> {
   final List<String> selectedAmenities = [];
   final List<Map<String, dynamic>> foodList = [];
 
-  final List<String> allAmenities = ['Chỗ đậu xe', 'Wifi', 'Giặt ủi', 'Hồ bơi', 'Bar'];
+  final List<String> allAmenities = ['Wifi', 'Gym', 'Bữa sáng', 'Bể bơi', 'Chỗ đậu xe', 'Pet Friendly', 'Giặt ủi', 'Bar', 'Xen đưa đón', 'Spa'];
 
   List<DocumentSnapshot> _roomTypes = [];
   List<DocumentSnapshot> _branches = [];
@@ -86,28 +87,38 @@ class _AddHotelRoomPageState extends State<AddHotelRoomPage> {
   }
 
   Future<List<String>> _uploadImages(List<File> images) async {
-    List<String> urls = [];
+  List<String> urls = [];
 
-    for (var image in images) {
-      final bytes = await image.readAsBytes();
-      final base64Image = base64Encode(bytes);
+  for (var image in images) {
+    final compressedBytes = await FlutterImageCompress.compressWithFile(
+      image.path,
+      minWidth: 800, // giảm kích thước ảnh
+      minHeight: 800,
+      quality: 75, // giảm chất lượng ảnh xuống 75%
+    );
 
-      final uri = Uri.parse('https://api.imgbb.com/1/upload?key=$imgbbApiKey');
-      final response = await http.post(uri, body: {
-        'image': base64Image,
-      });
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final imageUrl = data['data']['url'];
-        urls.add(imageUrl);
-      } else {
-        throw Exception('Upload thất bại: ${response.body}');
-      }
+    if (compressedBytes == null) {
+      throw Exception('Lỗi nén ảnh');
     }
 
-    return urls;
+    final base64Image = base64Encode(compressedBytes);
+
+    final uri = Uri.parse('https://api.imgbb.com/1/upload?key=$imgbbApiKey');
+    final response = await http.post(uri, body: {
+      'image': base64Image,
+    }).timeout(const Duration(seconds: 15)); // thêm timeout
+
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      final imageUrl = data['data']['url'];
+      urls.add(imageUrl);
+    } else {
+      throw Exception('Upload thất bại: ${response.body}');
+    }
   }
+
+  return urls;
+}
 
   void _addFood() async {
     final nameCtrl = TextEditingController();

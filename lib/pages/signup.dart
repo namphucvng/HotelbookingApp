@@ -3,6 +3,8 @@
   import 'package:firebase_auth/firebase_auth.dart';
   import 'package:cloud_firestore/cloud_firestore.dart';
   import 'package:bookingapp/pages/login.dart';
+  import 'package:bookingapp/pages/terms_and_policy.dart';
+  import 'package:flutter/gestures.dart';
 
   void main() async {
     WidgetsFlutterBinding.ensureInitialized();
@@ -62,7 +64,7 @@
                     children: [
                       const SizedBox(height: 24),
                       Center(
-                        child: Image.asset('images/logo1.png', width: 64, height: 64),
+                        child: Image.asset('images/logomain.png', width: 64, height: 64),
                       ),
                       const SizedBox(height: 10),
                       const Center(
@@ -151,7 +153,13 @@
                                         TextSpan(
                                           text: 'Chính sách & Điều khoản sử dụng',
                                           style: const TextStyle(
-                                              color: Colors.deepPurple, decoration: TextDecoration.underline),
+                                            color: Colors.deepPurple,
+                                            decoration: TextDecoration.underline,
+                                          ),
+                                          recognizer: TapGestureRecognizer()
+                                            ..onTap = () {
+                                              showTermsAndPolicyBottomSheet(context);
+                                            },
                                         ),
                                       ],
                                     ),
@@ -193,17 +201,6 @@
                       ),
 
                       const SizedBox(height: 24),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Image.asset('images/icon_fb.png', width: 32),
-                          const SizedBox(width: 24),
-                          Image.asset('images/icon_int.png', width: 32),
-                          const SizedBox(width: 24),
-                          Image.asset('images/icon_gg.png', width: 32),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
                       Center(
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.center,

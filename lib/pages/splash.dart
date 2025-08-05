@@ -90,7 +90,7 @@ class SplashScreen extends StatefulWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Image.asset(
-                    'images/logo2.png',
+                    'images/logo3.png',
                     width: 240,
                     fit: BoxFit.contain,
                   ),

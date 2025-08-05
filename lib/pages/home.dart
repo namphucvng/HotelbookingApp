@@ -3,6 +3,15 @@ import 'package:flutter/material.dart';
 import 'mylist.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter_image_compress/flutter_image_compress.dart';
+import 'dart:typed_data';
+import 'dart:io';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:convert';
+import 'package:provider/provider.dart';
+import 'package:bookingapp/models/favorite_provider.dart';
+import 'package:bookingapp/pages/search_result.dart';
 
 class Home extends StatefulWidget {
   const Home({super.key});
@@ -11,40 +20,30 @@ class Home extends StatefulWidget {
   State<Home> createState() => _HomeState();
 }
 
+Future<Uint8List?> compressImage(File file) async {
+  return await FlutterImageCompress.compressWithFile(
+    file.path,
+    minWidth: 800,
+    minHeight: 800,
+    quality: 75,
+  );
+}
+
 
 // ngoc them phan tien nghi 
 const List<Map<String, dynamic>> amenities = [
-  {"name": "Free Wi‑Fi",      "icon": Icons.wifi},
+  {"name": "WiFi",      "icon": Icons.wifi},
   {"name": "Gym",             "icon": Icons.fitness_center},
   {"name": "Bữa sáng",        "icon": Icons.breakfast_dining},
   {"name": "Bể bơi",          "icon": Icons.pool},
-  {"name": "Bãi xe",          "icon": Icons.local_parking},
+  {"name": "Chỗ đậu xe",          "icon": Icons.local_parking},
   {"name": "Pet Friendly",    "icon": Icons.pets},
+  {"name": "Giặt ủi", "icon": Icons.local_laundry_service}, 
+  {"name": "Bar", "icon": Icons.local_bar},  
+  {"name": "Xe đưa đón", "icon": Icons.airport_shuttle},
+  {"name": "Spa", "icon": Icons.spa},           
 ];
 
-// ngoc them phan dich vu
-const List<Map<String, String>> services = [
-  {
-    "name": "Chèo Kayak",
-    "image": "https://images.pexels.com/photos/1371360/pexels-photo-1371360.jpeg"
-  },
-  {
-    "name": "Tắm biển",
-    "image": "https://images.pexels.com/photos/457882/pexels-photo-457882.jpeg"
-  },
-  {
-    "name": "Lặn ngắm San hô",
-    "image": "https://images.pexels.com/photos/3046582/pexels-photo-3046582.jpeg"
-  },
-  {
-    "name": "Dù lượn",
-    "image": "https://images.pexels.com/photos/2132116/pexels-photo-2132116.jpeg"
-  },
-  {
-    "name": "Công viên nước",
-    "image": "https://images.pexels.com/photos/338504/pexels-photo-338504.jpeg"
-  },
-];
 
 class _HomeState extends State<Home> {
   int _selectedTab = 0;
@@ -52,12 +51,10 @@ class _HomeState extends State<Home> {
 
   // ngoc them
   final Set<String> _selectedAmenities = {};   // lưu các tiện nghi đang được chọn
-  final Set<String> _selectedServices  = {};  // lưu các dịch vụ đang được chọn
 
   final List<TabItem> tabs = [
     TabItem(icon: Icons.room, label: 'Phòng'),
     TabItem(icon: Icons.widgets, label: 'Tiện nghi'),
-    TabItem(icon: Icons.room_service_outlined, label: 'Dịch vụ'),
   ];
 
   @override
@@ -87,9 +84,7 @@ class _HomeState extends State<Home> {
                 color: Colors.white,
                 child: _selectedTab == 0
                     ? StaysTabContent(searchKeyword: _searchKeyword)
-                    : _selectedTab == 1
-                        ? const ExperiencesSection()
-                        : const ServicesSection(),
+                    : const ExperiencesSection(),
               ),
             ),
           ),
@@ -98,6 +93,7 @@ class _HomeState extends State<Home> {
     );
   }
 }
+
 
 String formatCurrency(String priceString) {
   try {
@@ -109,9 +105,28 @@ String formatCurrency(String priceString) {
   }
 }
 
-class SearchBar extends StatelessWidget {
+class SearchBar extends StatefulWidget {
   final ValueChanged<String> onChanged;
   const SearchBar({super.key, required this.onChanged});
+
+  @override
+  State<SearchBar> createState() => _SearchBarState();
+}
+
+class _SearchBarState extends State<SearchBar> {
+  final TextEditingController _controller = TextEditingController();
+
+  void _submitSearch() {
+    final keyword = _controller.text.trim();
+    if (keyword.isNotEmpty) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => SearchResultPage(searchKeyword: keyword),
+        ),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -136,13 +151,18 @@ class SearchBar extends StatelessWidget {
             const SizedBox(width: 8),
             Expanded(
               child: TextField(
-                onChanged: onChanged,
+                controller: _controller,
+                onSubmitted: (_) => _submitSearch(),
                 decoration: const InputDecoration(
                   hintText: 'Tìm kiếm',
                   border: InputBorder.none,
                   isDense: true,
                 ),
               ),
+            ),
+            GestureDetector(
+              onTap: _submitSearch,
+              child: const Icon(Icons.arrow_forward, color: Colors.deepPurple),
             ),
           ],
         ),
@@ -223,7 +243,8 @@ class StaysTabContent extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final firestore = FirebaseFirestore.instance;
-
+    final VoidCallback? onLikePressed;
+    
     return FutureBuilder(
       future: Future.wait([
         firestore.collection('branches').get(),
@@ -268,16 +289,18 @@ class StaysTabContent extends StatelessWidget {
               return roomName.contains(searchKeyword);
             }).toList();
 
-            final cards = filteredRooms.map((roomDoc) {
+            final List<StayCard> cards = filteredRooms.map((roomDoc) {
               final roomData = roomDoc.data();
               final imageUrls = roomData['imageUrls'] ?? [];
               final String imageUrl = (imageUrls.isNotEmpty) ? imageUrls[0] : '';
+              final roomId = roomDoc.id.toString();
 
               return StayCard(
                 imagePath: imageUrl,
                 title: roomData['name'] ?? '',
                 price: roomData['price']?.toString() ?? '',
                 rating: roomData['rating']?.toString() ?? '0.0',
+                isLiked: Provider.of<FavoritesProvider>(context).isFavorite(roomId),
                 onTap: () {
                   Navigator.push(
                     context,
@@ -285,19 +308,25 @@ class StaysTabContent extends StatelessWidget {
                       builder: (_) => DetailPage(
                         roomData: {
                           ...roomData,
-                          'roomId': roomDoc.id,
+                          'roomId': roomId,
                         },
                       ),
                     ),
                   );
                 },
+                onLikePressed: () {
+                  Provider.of<FavoritesProvider>(context, listen: false).toggleFavorite({
+                    ...roomData,
+                    'roomId': roomId,
+                  });
+                },
               );
-            }).toList();
+            }).toList(); 
 
             return ReusableStaysSection(
               title: branchTitle,
               cards: cards.isNotEmpty
-                  ? cards.cast<StayCard>()
+                  ? cards
                   : [const StayCard(
                       imagePath: '',
                       title: 'Chưa có phòng',
@@ -305,7 +334,7 @@ class StaysTabContent extends StatelessWidget {
                       rating: '',
                     )],
               branchId: branchId,
-              branchName: branchName, // 👈 Thêm dòng này để truyền đúng tên
+              branchName: branchName,
             );
           }).toList(),
         );
@@ -343,6 +372,7 @@ class ReusableStaysSection extends StatelessWidget {
               scrollDirection: Axis.horizontal,
               itemCount: cards.length,
               separatorBuilder: (context, index) => const SizedBox(width: 12),
+              cacheExtent: 500,
               itemBuilder: (context, index) => cards[index],
             ),
           ),
@@ -416,6 +446,7 @@ class StayCard extends StatelessWidget {
   final String rating;
   final bool isLiked;
   final VoidCallback? onTap;
+  final VoidCallback? onLikePressed;
 
   const StayCard({
     super.key,
@@ -425,6 +456,7 @@ class StayCard extends StatelessWidget {
     required this.rating,
     this.isLiked = false,
     this.onTap,
+    this.onLikePressed,
   });
 
   @override
@@ -444,27 +476,34 @@ class StayCard extends StatelessWidget {
             children: [
               Stack(
                 children: [
-                  Image.network(
-                    imagePath,
+                  CachedNetworkImage(
+                    imageUrl: imagePath,
                     width: 200,
                     height: 140,
                     fit: BoxFit.cover,
-                    errorBuilder: (context, error, stackTrace) => const Icon(Icons.broken_image),
+                    placeholder: (context, url) => Container(
+                      color: Colors.grey.shade300,
+                      child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                    ),
+                    errorWidget: (context, url, error) => const Icon(Icons.broken_image),
                   ),
                   Positioned(
                     top: 8,
                     right: 8,
-                    child: Container(
-                      width: 28,
-                      height: 28,
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.8),
-                        shape: BoxShape.circle,
-                      ),
-                      child: Icon(
-                        isLiked ? Icons.favorite : Icons.favorite_border,
-                        size: 16,
-                        color: isLiked ? Colors.red.shade900 : Colors.grey.shade700,
+                    child: GestureDetector(
+                      onTap: onLikePressed,
+                      child: Container(
+                        width: 28,
+                        height: 28,
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.8),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          isLiked ? Icons.favorite : Icons.favorite_border,
+                          size: 16,
+                          color: isLiked ? Colors.purple : Colors.purple[200],
+                        ),
                       ),
                     ),
                   ),
@@ -507,33 +546,90 @@ class StayCard extends StatelessWidget {
               ),
             ],
           ),
-        ),
+        )
       ),
     );
   }
 }
 
-class ExperiencesSection extends StatelessWidget {
+//ngocthem
+class ExperiencesSection extends StatefulWidget {
   const ExperiencesSection({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    return const Center(
-      child: Text('Trải nghiệm (Nội dung chưa có)', style: TextStyle(fontSize: 16, color: Colors.grey)),
-    );
-  }
+  State<ExperiencesSection> createState() => _ExperiencesSectionState();
 }
 
-class ServicesSection extends StatelessWidget {
-  const ServicesSection({super.key});
+class _ExperiencesSectionState extends State<ExperiencesSection> {
+  final Set<String> _selected = {};
 
   @override
   Widget build(BuildContext context) {
-    return const Center(
-      child: Text('Dịch vụ (Nội dung chưa có)', style: TextStyle(fontSize: 16, color: Colors.grey)),
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: GridView.builder(
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 3,
+          mainAxisSpacing: 16,
+          crossAxisSpacing: 16,
+          childAspectRatio: 1,
+        ),
+        itemCount: amenities.length,
+        itemBuilder: (context, index) {
+          final amenity = amenities[index];
+          final name = amenity['name'];
+          final icon = amenity['icon'];
+          final isSelected = _selected.contains(name);
+
+          return GestureDetector(
+            onTap: () {
+              setState(() {
+                if (isSelected) {
+                  _selected.remove(name);
+                } else {
+                  _selected.add(name);
+                }
+              });
+            },
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Colors.deepPurple.shade50,
+                    border: isSelected
+                        ? Border.all(color: Colors.deepPurple.shade200, width: 2)
+                        : null,
+                  ),
+                  padding: const EdgeInsets.all(12),
+                  child: Icon(
+                    icon,
+                    color: Colors.deepPurple,
+                    size: isSelected ? 30 : 24,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  name,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                    color: Colors.black,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ],
+            ),
+          );
+        },
+      ),
     );
   }
 }
+
 
 class BottomNavItem {
   final IconData icon;

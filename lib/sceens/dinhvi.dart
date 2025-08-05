@@ -3,6 +3,8 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'theodoixe.dart';
+import 'package:geocoding/geocoding.dart';
+
 
 class DinhViScreen extends StatefulWidget {
   final LatLng destinationLatLng;
@@ -207,36 +209,53 @@ class _DinhViScreenState extends State<DinhViScreen> {
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [
                       ElevatedButton(
-                        onPressed: () {
+                        onPressed: () async {
                           if (_selectedCar != null &&
                               _selectedLuggage != null &&
                               _selectedService != null &&
                               _destination != null &&
                               _destination!.isNotEmpty) {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => TheoDoiXeScreen(
-                                  destination: _destination!,
-                                ),
-                              ),
-                            );
+                            try {
+                              // Geocode địa chỉ
+                              List<Location> locations = await locationFromAddress(_destination!);
+                              if (locations.isNotEmpty) {
+                                final LatLng destinationLatLng = LatLng(
+                                  locations.first.latitude,
+                                  locations.first.longitude,
+                                );
+
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => TheoDoiXeScreen(
+                                      destinationText: _destination!,
+                                      destination: destinationLatLng,
+                                    ),
+                                  ),
+                                );
+                              } else {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text("Không tìm thấy vị trí.")),
+                                );
+                              }
+                            } catch (e) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text("Lỗi định vị: $e")),
+                              );
+                            }
                           } else {
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(
-                                content: Text(
-                                    "Vui lòng nhập nơi đến và chọn đầy đủ thông tin."),
+                                content: Text("Vui lòng nhập nơi đến và chọn đầy đủ thông tin."),
                               ),
                             );
                           }
                         },
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.deepPurple,
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 24, vertical: 12),
+                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                         ),
-                        child: const Text("Tài xế",
-                            style: TextStyle(color: Colors.white)),
+                        child: const Text("Tài xế", style: TextStyle(color: Colors.white)),
                       ),
                       OutlinedButton(
                         onPressed: _openGoogleMaps,

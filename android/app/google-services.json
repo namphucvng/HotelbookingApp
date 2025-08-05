@@ -13,7 +13,20 @@
           "package_name": "com.example.bookingapp"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "206383926382-97ak3d39olb8tq81qp7msnjooi3aes16.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.bookingapp",
+            "certificate_hash": "9fa5c9d94c7e312eb27bf8d713486cc287006599"
+          }
+        },
+        {
+          "client_id": "206383926382-puqbnslafcro4034plpktvobvbbun4gk.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyB7xUOhEhh_imZBYoWJbaZwskzkoHsM95g"
@@ -21,7 +34,12 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "206383926382-ov3nlrvlab4h7cqol8e6cn0etmjt36ks.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }

@@ -1,9 +1,12 @@
 import 'package:bookingapp/pages/bottomnav.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:bookingapp/pages/signup.dart';
 import 'package:bookingapp/pages/reset_password.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:google_sign_in/google_sign_in.dart';
+import 'package:firebase_core/firebase_core.dart';
 
 
 void main() {
@@ -40,10 +43,37 @@ class _LogInPageState extends State<LogInPage> {
   final TextEditingController _passwordController = TextEditingController();
   bool _isLoading = false;
   bool _obscurePassword = true;
+  bool _rememberMe = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUserPreferences();
+  }
+
+  void _loadUserPreferences() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _emailController.text = prefs.getString('saved_email') ?? '';
+      _passwordController.text = prefs.getString('saved_password') ?? '';
+      _rememberMe = prefs.getBool('remember_me') ?? false;
+    });
+  }
 
   Future<void> _loginUser() async {
     final email = _emailController.text.trim();
     final password = _passwordController.text;
+
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    if (_rememberMe) {
+      await prefs.setString('saved_email', email);
+      await prefs.setString('saved_password', password);
+      await prefs.setBool('remember_me', true);
+    } else {
+      await prefs.remove('saved_email');
+      await prefs.remove('saved_password');
+      await prefs.setBool('remember_me', false);
+    }
 
     if (email.isEmpty || password.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -79,6 +109,41 @@ class _LogInPageState extends State<LogInPage> {
     }
   }
 
+  Future<void> signInWithGoogle(BuildContext context) async {
+    try {
+      final GoogleSignIn googleSignIn = GoogleSignIn();
+      final GoogleSignInAccount? googleUser = await googleSignIn.signIn();
+
+      if (googleUser == null) {
+        // Người dùng hủy đăng nhập
+        return;
+      }
+
+      final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
+
+      final AuthCredential credential = GoogleAuthProvider.credential(
+        accessToken: googleAuth.accessToken,
+        idToken: googleAuth.idToken,
+      );
+
+      await FirebaseAuth.instance.signInWithCredential(credential);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Đăng nhập Google thành công")),
+      );
+
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const Bottomnav()),
+      );
+    } catch (e) {
+      debugPrint("Lỗi đăng nhập Google: $e");
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Đăng nhập bằng Google thất bại")),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final primaryColor = Colors.deepPurple;
@@ -96,7 +161,7 @@ class _LogInPageState extends State<LogInPage> {
                   const SizedBox(height: 12),
 
                   Center(
-                    child: Image.asset('images/logo1.png', width: 64, height: 64),
+                    child: Image.asset('images/logomain.png', width: 64, height: 64),
                   ),
 
                   const SizedBox(height: 16),
@@ -174,24 +239,39 @@ class _LogInPageState extends State<LogInPage> {
                   ),
 
                   const SizedBox(height: 8),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: TextButton(
-                      onPressed: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(builder: (context) => const ResetPasswordPage()),
-                        );
-                      },
-                      child: const Text(
-                        'Quên mật khẩu?',
-                        style: TextStyle(fontSize: 12, color: Colors.deepPurple),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        children: [
+                          Checkbox(
+                            value: _rememberMe,
+                            onChanged: (value) {
+                              setState(() {
+                                _rememberMe = value!;
+                              });
+                            },
+                            activeColor: Colors.deepPurple,
+                          ),
+                          const Text('Ghi nhớ tôi', style: TextStyle(fontSize: 13)),
+                        ],
                       ),
-                    ),
+                      TextButton(
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (context) => const ResetPasswordPage()),
+                          );
+                        },
+                        child: const Text(
+                          'Quên mật khẩu?',
+                          style: TextStyle(fontSize: 12, color: Colors.deepPurple),
+                        ),
+                      ),
+                    ],
                   ),
 
-                  const SizedBox(height: 16),
-
+                  const SizedBox(height: 8),
                   SizedBox(
                     width: double.infinity,
                     height: 40,
@@ -231,18 +311,32 @@ class _LogInPageState extends State<LogInPage> {
                   ),
 
                   const SizedBox(height: 16),
-
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Image.asset("images/icon_fb.png", width: 32),
-                      const SizedBox(width: 24),
-                      Image.asset("images/icon_int.png", width: 32),
-                      const SizedBox(width: 24),
-                      Image.asset("images/icon_gg.png", width: 32),
-                    ],
+                  SizedBox(
+                    width: double.infinity,
+                    height: 40,
+                    child: OutlinedButton.icon(
+                      onPressed: () => signInWithGoogle(context),
+                      // onPressed: () {
+                        
+                      // },
+                      icon: Image.asset("images/icon_gg.png", width: 20, height: 20),
+                      label: const Text(
+                        'Đăng nhập với Google',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF1A1A1A),
+                        ),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        side: const BorderSide(color: Colors.deepPurple),
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                      ),
+                    ),
                   ),
-
                   const SizedBox(height: 20),
 
                   Center(
@@ -257,6 +351,7 @@ class _LogInPageState extends State<LogInPage> {
                               color: Colors.deepPurple,
                               fontWeight: FontWeight.bold,
                               decoration: TextDecoration.underline,
+                              fontSize: 12,
                             ),
                             recognizer: TapGestureRecognizer()
                               ..onTap = () {
@@ -274,7 +369,7 @@ class _LogInPageState extends State<LogInPage> {
                   Center(
                     child: Image.asset(
                       "images/booking2.jpg",
-                      width: 370, // chỉnh nhỏ hơn nếu muốn
+                      width: 300, // chỉnh nhỏ hơn nếu muốn
                       fit: BoxFit.contain,
                     ),
                   ),

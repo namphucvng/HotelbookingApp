@@ -342,11 +342,14 @@ class _DatLichScreenState extends State<DatLichScreen> {
         ? DateTime(_checkOutDate!.year, _checkOutDate!.month, _checkOutDate!.day, _checkOutTime!.hour, _checkOutTime!.minute)
         : null;
 
+    final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+    final userName = userDoc.data()?['username'] ?? 'Ẩn danh';
     // In dữ liệu debug trước khi lưu
     print('roomData: ${widget.roomData}');
 
     await FirebaseFirestore.instance.collection('dat_lich').add({
       'userId': user.uid,
+      'userName': userName,
       'name': _nameController.text,
       'email': _emailController.text,
       'phone': _phoneController.text,

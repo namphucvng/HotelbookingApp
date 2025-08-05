@@ -39,7 +39,6 @@ dependencies:
   curved_navigation_bar: 
   firebase_core: 
   cloud_firestore: 
-  firebase_auth: 
   random_string: 
   shared_preferences: 
   flutter_rating_bar:
@@ -54,11 +53,22 @@ dependencies:
   assets:
   flutter_map:
   latlong2:
-  provider: ^6.1.5
+  provider: 
+  flutter_image_compress:
+  cached_network_image:
+  firebase_auth: 
+  google_sign_in: 
+  geocoding:
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  flutter_launcher_icons:
+
+flutter_icons:
+  android: true
+  ios: false
+  image_path: "assets/logomain.png"
 
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is

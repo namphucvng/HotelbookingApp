@@ -1,10 +1,17 @@
 import 'package:bookingapp/sceens/dinhvi.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_rating_bar/flutter_rating_bar.dart';
-import 'package:bookingapp/sceens/danhgia.dart';
+import 'package:bookingapp/sceens/feedback.dart';
 import 'package:bookingapp/sceens/datlich.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:intl/intl.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:convert';
+import 'package:provider/provider.dart';
+import 'package:bookingapp/models/favorite_provider.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 
 
@@ -19,9 +26,145 @@ class DetailPage extends StatefulWidget {
 
 class _DetailPageState extends State<DetailPage> {
   bool isFavorite = false;
+  List<Map<String, dynamic>> reviews = [];
+  double averageRating = 0;
+  
+  @override
+  void initState() {
+    super.initState();
+    checkIfFavorite();
+    fetchReviews();
+  }
+
+  Future<void> fetchReviews() async {
+    final roomId = widget.roomData['roomId'].toString(); // Đảm bảo kiểu String
+
+      print('RoomId cần lấy đánh giá: $roomId');
+      // print('Số lượng đánh giá lấy được: ${snapshot.docs.length}');
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('danh_gia')
+          .where('roomId', isEqualTo: roomId)
+          .orderBy('createdAt', descending: true)
+          .get();
+
+      // ✅ THÊM BƯỚC 3 Ở ĐÂY:
+      for (var doc in snapshot.docs) {
+        print('---');
+        print('user: ${doc['userName']}');
+        print('roomId: ${doc['roomId']}');
+        print('rating: ${doc['rating']}');
+        print('createdAt: ${doc['createdAt']}');
+      }
+
+      double totalRating = 0.0;
+      final loadedReviews = snapshot.docs.map((doc) {
+        final data = doc.data();
+        final rating = (data['rating'] ?? 0) as num;
+        totalRating += rating.toDouble();
+        return {
+          'userName': data['userName'] ?? 'Ẩn danh',
+          'avatar': data['avatar'] ?? '',
+          'rating': rating.toDouble(),
+          'review': data['review'] ?? '',
+          'createdAt': data['createdAt'] ?? Timestamp.now(),
+        };
+      }).toList();
+
+      setState(() {
+        reviews = loadedReviews;
+        if (loadedReviews.isNotEmpty) {
+          averageRating = totalRating / loadedReviews.length;
+        }
+      });
+    } catch (e) {
+      print('Lỗi khi lấy đánh giá: $e');
+    }
+  }
+
+  Widget _buildReviewTile(Map<String, dynamic> review) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            CircleAvatar(
+              radius: 22,
+              backgroundImage: NetworkImage(review['avatar'] ?? ''),
+              backgroundColor: Colors.grey[300],
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    review['userName'] ?? 'Người dùng',
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 4),
+                  RatingBarIndicator(
+                    rating: review['rating'],
+                    itemBuilder: (context, _) => const Icon(
+                      Icons.star,
+                      color: Colors.amber,
+                    ),
+                    itemCount: 5,
+                    itemSize: 18.0,
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    review['review'] ?? '',
+                    style: const TextStyle(color: Colors.black87),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    _getTimeAgo(review['createdAt']),
+                    style: const TextStyle(color: Colors.grey, fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> checkIfFavorite() async {
+    final roomId = widget.roomData['roomId'].toString();
+    final provider = Provider.of<FavoritesProvider>(context, listen: false);
+    final exists = provider.isFavorite(roomId);
+
+    setState(() {
+      isFavorite = exists;
+    });
+  }
+
+  String _getTimeAgo(Timestamp timestamp) {
+    final date = timestamp.toDate();
+    final now = DateTime.now();
+    final difference = now.difference(date);
+
+    if (difference.inDays > 7) {
+      return '${date.day}/${date.month}/${date.year}';
+    } else if (difference.inDays >= 1) {
+      return '${difference.inDays} ngày trước';
+    } else if (difference.inHours >= 1) {
+      return '${difference.inHours} giờ trước';
+    } else if (difference.inMinutes >= 1) {
+      return '${difference.inMinutes} phút trước';
+    } else {
+      return 'Vừa xong';
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    final favoritesProvider = Provider.of<FavoritesProvider>(context);
+
     return Scaffold(
       backgroundColor: Colors.white,
       body: SafeArea(
@@ -65,15 +208,17 @@ class _DetailPageState extends State<DetailPage> {
             itemCount: imageUrls.length,
             itemBuilder: (context, index) {
               final img = imageUrls[index];
-              return Image.network(
-                img,
+              return CachedNetworkImage(
+                imageUrl: img,
                 fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) {
-                  return Container(
-                    color: Colors.grey,
-                    child: const Center(child: Text("Không tải được ảnh")),
-                  );
-                },
+                placeholder: (context, url) => Container(
+                  color: Colors.grey[300],
+                  child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                ),
+                errorWidget: (context, url, error) => Container(
+                  color: Colors.grey,
+                  child: const Center(child: Text("Không tải được ảnh")),
+                ),
               );
             },
           ),
@@ -178,11 +323,16 @@ class _DetailPageState extends State<DetailPage> {
   Widget _buildAmenities() {
     final amenities = List<String>.from(widget.roomData['amenities'] ?? []);
     final amenityIcons = {
-      'Chỗ đậu xe': Icons.car_rental,
       'Wifi': Icons.wifi,
+      'Gym': Icons.fitness_center,
+      'Bữa sáng': Icons.breakfast_dining,
+      'Bể bơi': Icons.pool,
+      'Chỗ đậu xe': Icons.local_parking,
+      'Pet Friendly': Icons.pets,
       'Giặt ủi': Icons.local_laundry_service,
-      'Hồ bơi': Icons.pool,
       'Bar': Icons.local_bar,
+      'Xe đưa đón': Icons.car_rental_sharp,
+      'Spa': Icons.spa,
     };
 
     return Padding(
@@ -194,15 +344,16 @@ class _DetailPageState extends State<DetailPage> {
             alignment: Alignment.centerLeft,
             child: Text(
               'Tiện nghi',
-              textAlign: TextAlign.left,
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
           ),
           const SizedBox(height: 12),
-          Wrap(
-            alignment: WrapAlignment.start,
-            spacing: 16,
-            runSpacing: 8,
+          GridView.count(
+            crossAxisCount: 4, // mỗi dòng có 4 tiện nghi
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            crossAxisSpacing: 12,
+            mainAxisSpacing: 16,
             children: amenities.map((item) {
               return _buildAmenity(amenityIcons[item] ?? Icons.check, item);
             }).toList(),
@@ -215,10 +366,16 @@ class _DetailPageState extends State<DetailPage> {
   Widget _buildAmenity(IconData icon, String label) {
     return Column(
       mainAxisSize: MainAxisSize.min,
+      mainAxisAlignment: MainAxisAlignment.center,
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        Icon(icon, color: Colors.deepPurple),
-        const SizedBox(height: 4),
-        Text(label, style: const TextStyle(fontSize: 12)),
+        Icon(icon, color: Colors.deepPurple, size: 28),
+        const SizedBox(height: 6),
+        Text(
+          label,
+          style: const TextStyle(fontSize: 13),
+          textAlign: TextAlign.center,
+        ),
       ],
     );
   }
@@ -262,18 +419,21 @@ class _DetailPageState extends State<DetailPage> {
         children: [
           ClipRRect(
             borderRadius: BorderRadius.circular(16),
-            child: Image.network(
-              imageUrl,
+            child: CachedNetworkImage(
+              imageUrl: imageUrl,
               height: 70,
               width: 100,
               fit: BoxFit.cover,
-              errorBuilder: (context, error, stackTrace) {
-                return Container(
-                  height: 70,
-                  color: Colors.grey[300],
-                  child: const Center(child: Icon(Icons.broken_image)),
-                );
-              },
+              placeholder: (context, url) => Container(
+                height: 70,
+                color: Colors.grey[300],
+                child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+              ),
+              errorWidget: (context, url, error) => Container(
+                height: 70,
+                color: Colors.grey[300],
+                child: const Center(child: Icon(Icons.broken_image)),
+              ),
             ),
           ),
           const SizedBox(height: 4),
@@ -296,8 +456,13 @@ class _DetailPageState extends State<DetailPage> {
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               GestureDetector(
                 onTap: () {
-                  Navigator.push(context,
-                      MaterialPageRoute(builder: (_) => const DanhGiaScreen()));
+                  final roomId = widget.roomData['roomId'].toString();
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => DanhGiaScreen(roomId: roomId),
+                    ),
+                  );
                 },
                 child: const Text(
                   'Xem thêm',
@@ -311,32 +476,23 @@ class _DetailPageState extends State<DetailPage> {
             ],
           ),
           const SizedBox(height: 8),
-          _reviewTile('Chị Phiến',
-              'Dịch vụ tốt, phòng sạch đẹp giá mà có anh Virus nhỉ', 5,
-              '2 giờ trước', const AssetImage('images/chiphien.png')),
-          _reviewTile('Capybara mini', 'Dịch vụ tốt, phòng sạch đẹp', 5,
-              '2 tuần trước', const AssetImage('images/capybara.png')),
+          if (reviews.isEmpty)
+            const Text('Chưa có đánh giá nào.')
+          else
+            ListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: reviews.length > 3 ? 3 : reviews.length,
+              itemBuilder: (context, index) {
+                final review = reviews[index];
+                return _buildReviewTile(review);
+              },
+            ),
         ],
       ),
     );
   }
 
-  Widget _reviewTile(String user, String content, int rating, String timeAgo,
-      ImageProvider avatar) {
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      leading: CircleAvatar(backgroundImage: avatar),
-      title: Text(user),
-      subtitle: Text(content),
-      trailing: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Text('$rating/5', style: const TextStyle(fontWeight: FontWeight.bold)),
-          Text(timeAgo, style: const TextStyle(fontSize: 12, color: Colors.grey)),
-        ],
-      ),
-    );
-  }
 
   Widget _buildStaticMap() {
     final lat = (widget.roomData['latitude'] as num?)?.toDouble() ?? 12.238791;
@@ -418,62 +574,41 @@ class _DetailPageState extends State<DetailPage> {
 
   Widget _buildBottomBar() {
     final imageUrls = List<String>.from(widget.roomData['imageUrls'] ?? []);
-    final firstImage = imageUrls.isNotEmpty ? imageUrls[0] : 'https://via.placeholder.com/600x400.png?text=No+Image';
+    final firstImage = imageUrls.isNotEmpty
+        ? imageUrls[0]
+        : 'https://via.placeholder.com/600x400.png?text=No+Image';
 
     return Padding(
       padding: const EdgeInsets.all(16),
-      child: Row(
-        children: [
-          Container(
-            decoration: BoxDecoration(
-              color: Colors.white,
-              shape: BoxShape.circle,
-              border: Border.all(color: Colors.deepPurple.shade100),
-            ),
-            child: IconButton(
-              icon: Icon(
-                isFavorite ? Icons.favorite : Icons.favorite_border,
-                color: isFavorite ? Colors.red : Colors.purple[200],
-              ),
-              onPressed: () {
-                setState(() {
-                  isFavorite = !isFavorite;
-                });
-              },
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: SizedBox(
-              height: 40,
-              child: ElevatedButton(
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => DatLichScreen(
-                      roomData: {
-                          ...widget.roomData,
-                          'image': firstImage,
-                        },
-                      ),
-                    ),
-                  );
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.deepPurple,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                ),
-                child: const Text(
-                  'ĐẶT LỊCH NGAY',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+      child: SizedBox(
+        width: double.infinity,
+        height: 40,
+        child: ElevatedButton(
+          onPressed: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => DatLichScreen(
+                  roomData: {
+                    ...widget.roomData,
+                    'image': firstImage,
+                  },
                 ),
               ),
+            );
+          },
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.deepPurple,
+            foregroundColor: Colors.white,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
             ),
           ),
-        ],
+          child: const Text(
+            'ĐẶT LỊCH NGAY',
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+          ),
+        ),
       ),
     );
   }

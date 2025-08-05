@@ -1,29 +1,65 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:intl/intl.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class TheoDoiXeScreen extends StatelessWidget {
-  final String destination;
+  final String destinationText;
+  final LatLng destination;
 
-  const TheoDoiXeScreen({super.key, required this.destination});
+  const TheoDoiXeScreen({
+    super.key,
+    required this.destinationText,
+    required this.destination,
+  });
 
   @override
   Widget build(BuildContext context) {
-    // Lấy thời gian hiện tại + 15 phút
     final eta = DateTime.now().add(const Duration(minutes: 15));
     final formattedTime = DateFormat.Hm().format(eta);
 
     return Scaffold(
       appBar: AppBar(
+        backgroundColor: Colors.white,
+        elevation: 1,
+        iconTheme: const IconThemeData(color: Colors.deepPurple), // màu nút back
         title: const Text(
-          "Theo dõi tài xế",
-          style: TextStyle(color: Colors.white),
+          "Tìm tài xế",
+          style: TextStyle(
+            color: Colors.deepPurple, // màu chữ
+            fontWeight: FontWeight.bold,
+          ),
         ),
-        backgroundColor: Colors.deepPurple,
       ),
       body: Column(
         children: [
           Expanded(
-            child: Image.asset("images/map_mock.png", fit: BoxFit.cover),
+            child: ClipRRect(
+              borderRadius: const BorderRadius.vertical(bottom: Radius.circular(16)),
+              child: FlutterMap(
+                options: MapOptions(
+                  initialCenter: destination,
+                  initialZoom: 15,
+                ),
+                children: [
+                  TileLayer(
+                    urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                    userAgentPackageName: 'com.example.app',
+                  ),
+                  MarkerLayer(
+                    markers: [
+                      Marker(
+                        width: 40,
+                        height: 40,
+                        point: destination,
+                        child: const Icon(Icons.location_pin, color: Colors.red, size: 40),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
           ),
           Container(
             padding: const EdgeInsets.all(16),
@@ -42,8 +78,17 @@ class TheoDoiXeScreen extends StatelessWidget {
                   subtitle: const Text("Anh tài xế"),
                   trailing: IconButton(
                     icon: const Icon(Icons.phone, color: Colors.green),
-                    onPressed: () {
-                      // thêm logic gọi điện nếu cần
+                    onPressed: () async {
+                      const phoneNumber = "tel:0912345678";
+                      final Uri launchUri = Uri.parse(phoneNumber);
+
+                      if (await canLaunchUrl(launchUri)) {
+                        await launchUrl(launchUri);
+                      } else {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text("Không thể thực hiện cuộc gọi.")),
+                        );
+                      }
                     },
                   ),
                 ),
@@ -51,7 +96,7 @@ class TheoDoiXeScreen extends StatelessWidget {
                 ListTile(
                   leading: const Icon(Icons.place),
                   title: const Text("Địa chỉ đến"),
-                  subtitle: Text(destination),
+                  subtitle: Text(destinationText),
                 ),
                 ListTile(
                   leading: const Icon(Icons.timer),

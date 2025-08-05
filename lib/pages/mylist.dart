@@ -2,7 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'package:bookingapp/pages/detail_page.dart';
-import '../models/favorite_provider.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:convert';
+import 'package:provider/provider.dart';
+import 'package:bookingapp/models/favorite_provider.dart';
+
 
 class HotelRoomListPage extends StatefulWidget {
   final String branchId;
@@ -27,6 +32,16 @@ class _HotelRoomListPageState extends State<HotelRoomListPage> {
     });
   }
 
+  @override
+  void initState() {
+    super.initState();
+    // Force reload favorites in case it was changed before arriving here
+    Future.microtask(() {
+      Provider.of<FavoritesProvider>(context, listen: false).loadFavorites();
+    });
+  }
+
+
   List<QueryDocumentSnapshot> _sortRooms(
       List<QueryDocumentSnapshot> rooms, String filter) {
     final List<QueryDocumentSnapshot> sortedRooms = List.from(rooms);
@@ -45,7 +60,6 @@ class _HotelRoomListPageState extends State<HotelRoomListPage> {
             (b['rating'] ?? 0).compareTo(a['rating'] ?? 0));
         break;
     }
-
     return sortedRooms;
   }
 
@@ -79,6 +93,8 @@ class _HotelRoomListPageState extends State<HotelRoomListPage> {
                       _sortRooms(snapshot.data!.docs, _selectedFilter);
 
                   return ListView.builder(
+                    physics: const BouncingScrollPhysics(),
+                    cacheExtent: 1000,
                     padding: const EdgeInsets.symmetric(horizontal: 12),
                     itemCount: rooms.length,
                     itemBuilder: (context, index) {
@@ -273,7 +289,7 @@ class _HotelRoomCardState extends State<HotelRoomCard> {
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (context) => DetailPage(roomData: widget.roomData),
+            builder: (_) => DetailPage(roomData: widget.roomData),
           ),
         );
       },
@@ -301,19 +317,20 @@ class _HotelRoomCardState extends State<HotelRoomCard> {
                             return ClipRRect(
                               borderRadius: const BorderRadius.vertical(
                                   top: Radius.circular(16)),
-                              child: Image.network(
-                                url,
+                              child: CachedNetworkImage(
+                                imageUrl: url,
                                 width: double.infinity,
                                 fit: BoxFit.cover,
-                                errorBuilder: (context, error, stackTrace) {
-                                  return Container(
-                                    color: Colors.grey[300],
-                                    child: const Center(
-                                      child: Icon(Icons.broken_image,
-                                          size: 48, color: Colors.grey),
-                                    ),
-                                  );
-                                },
+                                placeholder: (context, url) => Container(
+                                  color: Colors.grey[300],
+                                  child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                                ),
+                                errorWidget: (context, url, error) => Container(
+                                  color: Colors.grey[300],
+                                  child: const Center(
+                                    child: Icon(Icons.broken_image, size: 48, color: Colors.grey),
+                                  ),
+                                ),
                               ),
                             );
                           },
@@ -328,31 +345,6 @@ class _HotelRoomCardState extends State<HotelRoomCard> {
                           ),
                         ),
                 ),
-                // Nút yêu thích
-                Positioned(
-                  top: 12,
-                  right: 12,
-                  child: Container(
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: Colors.white,
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.1),
-                          blurRadius: 4,
-                          offset: const Offset(0, 2),
-                        ),
-                      ],
-                    ),
-                    child: IconButton(
-                      icon: const Icon(Icons.favorite_border,
-                          color: Color(0xFF999999), size: 20),
-                      onPressed: () {},
-                      tooltip: 'Yêu thích',
-                    ),
-                  ),
-                ),
-                // Dot indicators
                 if (widget.imageUrls.length > 1)
                   Positioned(
                     bottom: 12,

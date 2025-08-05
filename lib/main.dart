@@ -12,7 +12,7 @@ import 'package:bookingapp/pages/login.dart';
 import 'package:bookingapp/pages/signup.dart';
 import 'package:bookingapp/pages/splash.dart';
 import 'package:bookingapp/pages/start.dart';
-import 'package:bookingapp/sceens/danhgia.dart';
+import 'package:bookingapp/sceens/feedback.dart';
 import 'package:bookingapp/sceens/datlich.dart';
 import 'package:bookingapp/sceens/dinhvi.dart';
 import 'package:bookingapp/sceens/theodoixe.dart';
@@ -20,24 +20,21 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-
-
-//ngoc them
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';            // Provider
-import 'models/favorite_provider.dart';             // Yêu thích
+import 'models/favorite_provider.dart';  
+import 'package:firebase_core/firebase_core.dart';
 
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  final favoritesProvider = FavoritesProvider();
+  await favoritesProvider.loadFavorites();
   await Firebase.initializeApp();
-
   runApp(
     MultiProvider(
       providers: [
-        ChangeNotifierProvider(
-          create: (_) => FavoriteProvider()..loadFavorites(),
-        ),
+        ChangeNotifierProvider(create: (_) => FavoritesProvider()),
       ],
       child: const MyApp(),
     ),
@@ -62,63 +59,10 @@ class MyApp extends StatelessWidget {
         Locale('vi', 'VN'),
         Locale('en', 'US'),
       ],
-      home: const RootPage(),
+      home: const SplashScreen(),
     );
   }
 }
-
-class RootPage extends StatelessWidget {
-  const RootPage({super.key});
-
-  Future<String?> _getUserRoleWithDelay(String uid) async {
-    await Future.delayed(const Duration(seconds: 5)); // Hiển thị splash tối thiểu 2s
-    final doc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
-    if (doc.exists) {
-      return doc.data()?['role'] ?? 'user';
-    }
-    return null;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return StreamBuilder<User?>(
-      stream: FirebaseAuth.instance.authStateChanges(),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const SplashScreen();
-        }
-
-        final user = snapshot.data;
-
-        if (user == null) {
-          return const LogIn(); // chưa đăng nhập
-        }
-
-        return FutureBuilder<String?>(
-          future: _getUserRoleWithDelay(user.uid),
-          builder: (context, roleSnapshot) {
-            if (roleSnapshot.connectionState == ConnectionState.waiting) {
-              return const SplashScreen(); // vẫn splash
-            }
-
-            if (roleSnapshot.hasError) {
-              return const Scaffold(body: Center(child: Text('Lỗi khi lấy quyền người dùng.')));
-            }
-
-            final role = roleSnapshot.data;
-
-            if (role == 'admin') {
-              return const AdminHomePage();
-            } else {
-              return const Bottomnav();
-            }
-          },
-        );
-      },
-    );
-  }
-}
-
 
 
 class MyHomePage extends StatefulWidget {

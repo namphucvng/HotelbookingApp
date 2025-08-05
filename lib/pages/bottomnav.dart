@@ -1,12 +1,11 @@
 import 'package:bookingapp/pages/history.dart';
-import 'package:bookingapp/pages/yeuthich.dart';
+import 'package:bookingapp/pages/favorite.dart';
 import 'package:bookingapp/sceens/dinhvi.dart';
 import 'package:flutter/material.dart';
 import 'package:latlong2/latlong.dart';
 
-
 import 'home.dart';
-import 'profile.dart';// Thêm trang khám phá
+import 'profile.dart';
 
 class Bottomnav extends StatefulWidget {
   final int initialIndex;
@@ -28,11 +27,11 @@ class _BottomnavState extends State<Bottomnav> {
 
   final List<Widget> pages = [
     Home(),
-    YeuThich(),
+    FavoritesScreen(),
     DinhViScreen(
-      destinationLatLng: LatLng(10.762622, 106.660172), // Tọa độ mẫu
+      destinationLatLng: LatLng(10.762622, 106.660172),
     ),
-    History(),                                                                                                                                         
+    History(),
     Profile(),
   ];
 
@@ -83,9 +82,9 @@ class _BottomnavState extends State<Bottomnav> {
     return SizedBox(
       height: 88,
       child: Stack(
-        clipBehavior: Clip.none,
+        clipBehavior: Clip.none, // Cho phép bóng đổ ra ngoài
         children: [
-          // Thanh điều hướng nền
+          // Nền thanh điều hướng
           Positioned(
             bottom: 0,
             left: 0,
@@ -122,7 +121,7 @@ class _BottomnavState extends State<Bottomnav> {
                     active: currentTabIndex == 1,
                     onTap: () => _onItemTapped(1),
                   ),
-                  const SizedBox(width: 64), // chừa chỗ cho nút giữa
+                  const SizedBox(width: 64), // chừa chỗ nút giữa
                   _buildNavButton(
                     icon: Icons.access_time,
                     label: 'Lịch sử',
@@ -140,9 +139,9 @@ class _BottomnavState extends State<Bottomnav> {
             ),
           ),
 
-          // Nút nổi "Khám phá"
+          // Nút nổi Khám phá (Explore)
           Positioned(
-            bottom: 32, // Nổi lên trên nền
+            bottom: 24, // <-- Tăng từ 12 lên 24 để nút nổi lên trên
             left: MediaQuery.of(context).size.width / 2 - 32,
             child: InkWell(
               onTap: () => _onItemTapped(2),
@@ -160,7 +159,7 @@ class _BottomnavState extends State<Bottomnav> {
                   boxShadow: [
                     BoxShadow(
                       color: Colors.deepPurple.withOpacity(0.4),
-                      blurRadius: 8,
+                      blurRadius: 12,
                       offset: const Offset(0, 4),
                     ),
                   ],
@@ -181,7 +180,8 @@ class _BottomnavState extends State<Bottomnav> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color.fromARGB(255,244,241,241),
+      backgroundColor: Colors.white,
+      extendBody: false, // Cho phép bóng đổ ra ngoài bottom bar
       body: pages[currentTabIndex],
       bottomNavigationBar: _buildBottomNavBar(context),
     );
