@@ -2,21 +2,18 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-class PersonalInfoPage extends StatefulWidget {
-  const PersonalInfoPage({super.key});
+class ChangePasswordPage extends StatefulWidget {
+  const ChangePasswordPage({super.key});
 
   @override
-  State<PersonalInfoPage> createState() => _PersonalInfoPageState();
+  State<ChangePasswordPage> createState() => _ChangePasswordPageState();
 }
 
-class _PersonalInfoPageState extends State<PersonalInfoPage> {
-  final TextEditingController _usernameController = TextEditingController();
-  final TextEditingController _phoneController = TextEditingController();
-
-  String userName = '';
-  String userPhone = '';
+class _ChangePasswordPageState extends State<ChangePasswordPage> {
+  final TextEditingController _oldPasswordController = TextEditingController();
+  final TextEditingController _newPasswordController = TextEditingController();
   String userAvatar = '';
-  String userId = '';
+  bool isLoading = false;
 
   @override
   void initState() {
@@ -27,51 +24,71 @@ class _PersonalInfoPageState extends State<PersonalInfoPage> {
   Future<void> _fetchUserInfo() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user != null) {
-      userId = user.uid;
       final doc = await FirebaseFirestore.instance
           .collection('users')
-          .doc(userId)
+          .doc(user.uid)
           .get();
       if (doc.exists) {
-        final data = doc.data()!;
         setState(() {
-          userName = data['username'] ?? '';
-          userPhone = data['phone'] ?? '';
-          userAvatar = data['avatarUrl'] ?? '';
-          _usernameController.text = userName;
-          _phoneController.text = userPhone;
+          userAvatar = doc.data()?['avatarUrl'] ?? '';
         });
       }
     }
   }
 
-  Future<void> _updateUserInfo() async {
-    final newUsername = _usernameController.text.trim();
-    final newPhone = _phoneController.text.trim();
+  void _changePassword() async {
+    final user = FirebaseAuth.instance.currentUser;
+    final oldPassword = _oldPasswordController.text.trim();
+    final newPassword = _newPasswordController.text.trim();
 
-    if (newUsername == userName && newPhone == userPhone) {
-      // Không có thay đổi
+    if (oldPassword.isEmpty || newPassword.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Vui lòng điền đầy đủ cả 2 ô.")),
+      );
       return;
     }
 
-    try {
-      await FirebaseFirestore.instance.collection('users').doc(userId).update({
-        'username': newUsername,
-        'phone': newPhone,
-      });
+    if (oldPassword == newPassword) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Mật khẩu mới không được trùng với mật khẩu cũ."),
+        ),
+      );
+      return;
+    }
 
-      setState(() {
-        userName = newUsername;
-        userPhone = newPhone;
-      });
+    setState(() {
+      isLoading = true;
+    });
+
+    try {
+      final cred = EmailAuthProvider.credential(
+        email: user!.email!,
+        password: oldPassword,
+      );
+
+      await user.reauthenticateWithCredential(cred);
+      await user.updatePassword(newPassword);
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Đã cập nhật thông tin mới nhất")),
+        const SnackBar(
+          content: Text("Đổi mật khẩu thành công, vui lòng đăng nhập lại."),
+        ),
       );
+
+      await FirebaseAuth.instance.signOut(); // Đăng xuất
+
+      // Chuyển sang trang đăng nhập
+      if (!mounted) return;
+      Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false);
     } catch (e) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text("Lỗi khi cập nhật: $e")));
+      ).showSnackBar(SnackBar(content: Text("Lỗi: ${e.toString()}")));
+    } finally {
+      setState(() {
+        isLoading = false;
+      });
     }
   }
 
@@ -106,9 +123,7 @@ class _PersonalInfoPageState extends State<PersonalInfoPage> {
                     top: 0,
                     child: IconButton(
                       icon: const Icon(Icons.arrow_back),
-                      onPressed: () {
-                        Navigator.pop(context);
-                      },
+                      onPressed: () => Navigator.pop(context),
                     ),
                   ),
                   Align(
@@ -126,7 +141,7 @@ class _PersonalInfoPageState extends State<PersonalInfoPage> {
                         Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
+                          children: const [
                             Text(
                               'Xin chào,',
                               style: TextStyle(
@@ -137,8 +152,8 @@ class _PersonalInfoPageState extends State<PersonalInfoPage> {
                               ),
                             ),
                             Text(
-                              userName.isNotEmpty ? userName : 'Đang tải...',
-                              style: const TextStyle(
+                              'Mời đổi mật khẩu',
+                              style: TextStyle(
                                 fontSize: 22,
                                 fontWeight: FontWeight.w600,
                               ),
@@ -158,7 +173,7 @@ class _PersonalInfoPageState extends State<PersonalInfoPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text(
-                      'Thông tin cá nhân',
+                      'Đổi mật khẩu',
                       style: TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.bold,
@@ -167,9 +182,10 @@ class _PersonalInfoPageState extends State<PersonalInfoPage> {
                     ),
                     const SizedBox(height: 20),
                     TextFormField(
-                      controller: _usernameController,
+                      controller: _oldPasswordController,
+                      obscureText: true,
                       decoration: InputDecoration(
-                        labelText: 'Tên người dùng',
+                        labelText: 'Mật khẩu hiện tại',
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),
@@ -181,9 +197,10 @@ class _PersonalInfoPageState extends State<PersonalInfoPage> {
                     ),
                     const SizedBox(height: 30),
                     TextFormField(
-                      controller: _phoneController,
+                      controller: _newPasswordController,
+                      obscureText: true,
                       decoration: InputDecoration(
-                        labelText: 'Số điện thoại',
+                        labelText: 'Mời nhập mật khẩu mới',
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),
@@ -192,42 +209,37 @@ class _PersonalInfoPageState extends State<PersonalInfoPage> {
                           vertical: 12,
                         ),
                       ),
-                      keyboardType: TextInputType.phone,
                     ),
-                    const SizedBox(height: 50),
+                    Text(
+                      'Mật khẩu phải 6 chữ số trở lên',
+                      style: TextStyle(fontSize: 13, color: Colors.black87),
+                    ),
+                    const SizedBox(height: 45),
+
                     SizedBox(
                       width: double.infinity,
                       height: 48,
                       child: ElevatedButton(
-                        onPressed: _updateUserInfo,
+                        onPressed: isLoading ? null : _changePassword,
                         style: ElevatedButton.styleFrom(
-                          padding: EdgeInsets.zero,
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12),
                           ),
                           elevation: 0,
+                          backgroundColor: const Color(0xFF6F8CFF),
                         ),
-                        child: Ink(
-                          decoration: BoxDecoration(
-                            gradient: const LinearGradient(
-                              colors: [Color(0xFF4F4FCF), Color(0xFF6F8CFF)],
-                              begin: Alignment.centerLeft,
-                              end: Alignment.centerRight,
-                            ),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Container(
-                            alignment: Alignment.center,
-                            child: const Text(
-                              'Cập nhật',
-                              style: TextStyle(
-                                fontSize: 15,
-                                fontWeight: FontWeight.w600,
+                        child: isLoading
+                            ? const CircularProgressIndicator(
                                 color: Colors.white,
+                              )
+                            : const Text(
+                                'Cập nhật',
+                                style: TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.white,
+                                ),
                               ),
-                            ),
-                          ),
-                        ),
                       ),
                     ),
                   ],

@@ -1,8 +1,10 @@
+import 'package:bookingapp/pages/danhgia.dart';
 import 'package:bookingapp/pages/edit_booking.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 class History extends StatefulWidget {
   const History({super.key});
@@ -13,11 +15,41 @@ class History extends StatefulWidget {
 
 class _HistoryState extends State<History> with SingleTickerProviderStateMixin {
   late TabController _tabController;
+  List<Map<String, dynamic>> _bookings = [];
+  bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 4, vsync: this);
+    loadBookings();
+  }
+
+  Future<void> loadBookings() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    final snapshot = await FirebaseFirestore.instance
+        .collection('dat_lich')
+        .where('userId', isEqualTo: user.uid)
+        .orderBy('checkIn', descending: true)
+        .get();
+
+    final bookings = snapshot.docs.map((doc) {
+      return {
+        'id': doc.id,
+        ...doc.data(),
+      };
+    }).toList();
+
+    setState(() {
+      _bookings = bookings;
+      _isLoading = false;
+    });
   }
 
   @override
@@ -39,12 +71,18 @@ class _HistoryState extends State<History> with SingleTickerProviderStateMixin {
         ),
         bottom: TabBar(
           controller: _tabController,
+          isScrollable: true,
           labelColor: Colors.deepPurple,
           unselectedLabelColor: const Color(0xFF666666),
+          labelPadding: const EdgeInsets.symmetric(horizontal: 16),
           tabs: const [
-            Tab(text: 'Chờ xác nhận'),
+            Padding(
+              padding: EdgeInsets.only(left: 0), 
+              child: Tab(text: 'Chờ xác nhận'),
+            ),
             Tab(text: 'Đã xác nhận'),
             Tab(text: 'Đã thực hiện'),
+            Tab(text: 'Đã hủy'),
           ],
         ),
         iconTheme: const IconThemeData(color: Colors.deepPurple),
@@ -55,6 +93,7 @@ class _HistoryState extends State<History> with SingleTickerProviderStateMixin {
           _buildBookingList('pending'),
           _buildBookingList('confirmed'),
           _buildBookingList('completed'),
+          _buildBookingList('cancelled'),
         ],
       ),
     );
@@ -79,7 +118,7 @@ class _HistoryState extends State<History> with SingleTickerProviderStateMixin {
         }
 
         return ListView.builder(
-          padding: const EdgeInsets.all(14),
+          padding: EdgeInsets.fromLTRB(14, 14, 14, MediaQuery.of(context).padding.bottom + 80),
           itemCount: bookings.length,
           itemBuilder: (context, index) {
             final data = bookings[index];
@@ -106,12 +145,17 @@ class _HistoryState extends State<History> with SingleTickerProviderStateMixin {
                       topLeft: Radius.circular(16),
                       topRight: Radius.circular(16),
                     ),
-                    child: Image.network(
-                      data['image'],
+                    child: CachedNetworkImage(
+                      imageUrl: data['image'],
                       height: 160,
                       width: double.infinity,
                       fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) => const SizedBox(
+                      placeholder: (context, url) => Container(
+                        height: 160,
+                        color: Colors.grey[200],
+                        child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                      ),
+                      errorWidget: (context, url, error) => const SizedBox(
                         height: 160,
                         child: Center(child: Icon(Icons.broken_image, size: 40)),
                       ),
@@ -131,9 +175,9 @@ class _HistoryState extends State<History> with SingleTickerProviderStateMixin {
                                 style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                               ),
                             ),
-                            if (status == 'pending')
-                              Row(
-                                children: [
+                            Row(
+                              children: [
+                                if (status == 'pending') ...[
                                   TextButton(
                                     onPressed: () => _editBooking(data),
                                     child: const Text(
@@ -149,7 +193,36 @@ class _HistoryState extends State<History> with SingleTickerProviderStateMixin {
                                     ),
                                   ),
                                 ],
-                              ),
+                                if (status == 'completed') ...[
+                                  if (data['isRated'] == false)
+                                    TextButton(
+                                      onPressed: () async {
+                                        final result = await Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (context) => DanhGiaPage(bookingData: data),
+                                          ),
+                                        );
+                                        if (result == true && mounted) {
+                                          setState(() {}); // hoặc gọi lại loadBookings() nếu cần cập nhật lại toàn bộ
+                                        }
+                                      },
+                                      child: const Text(
+                                        'Đánh giá',
+                                        style: TextStyle(color: Colors.deepPurple, fontWeight: FontWeight.bold),
+                                      ),
+                                    )
+                                  else
+                                    const Padding(
+                                      padding: EdgeInsets.symmetric(horizontal: 8),
+                                      child: Text(
+                                        'Đã đánh giá',
+                                        style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold),
+                                      ),
+                                    ),
+                                ],
+                              ],
+                            ),
                           ],
                         ),
                         const SizedBox(height: 6),
@@ -194,13 +267,26 @@ class _HistoryState extends State<History> with SingleTickerProviderStateMixin {
           .where('status', isEqualTo: status)
           .get();
 
-      return snapshot.docs.map((doc) {
+      List<Map<String, dynamic>> bookings = [];
+
+      for (var doc in snapshot.docs) {
         final data = doc.data();
-        return {
-          'id': doc.id,
+        final bookingId = doc.id;
+
+        // Kiểm tra đã đánh giá chưa
+        final ratingSnap = await FirebaseFirestore.instance
+            .collection('danh_gia')
+            .where('bookingId', isEqualTo: bookingId)
+            .limit(1)
+            .get();
+        final isRated = ratingSnap.docs.isNotEmpty;
+
+        bookings.add({
+          'id': bookingId,
+          'roomId': data['roomId'] ?? '',
           'roomName': data['roomName'] ?? 'Không rõ',
           'checkIn': (data['checkIn'] as Timestamp?)?.toDate(),
-          'checkOut': (data['checkOut'] as Timestamp?)?.toDate(),
+          'checkOut': (data['checkOut'] as Timestamp?)?.toDate(), 
           'status': data['status'] ?? 'pending',
           'adults': data['adults'] ?? 0,
           'children': data['children'] ?? 0,
@@ -209,8 +295,12 @@ class _HistoryState extends State<History> with SingleTickerProviderStateMixin {
           'image': (data.containsKey('image') && data['image'] != null && data['image'].toString().isNotEmpty)
               ? data['image']
               : 'https://via.placeholder.com/600x400.png?text=No+Image',
-        };
-      }).toList();
+          'isRated': isRated, 
+          'userName': data['userName'] ?? 'Ẩn danh',
+        });
+      }
+
+      return bookings;
     } catch (e) {
       print('Lỗi khi lấy đơn đặt phòng: $e');
       return [];
@@ -225,6 +315,8 @@ class _HistoryState extends State<History> with SingleTickerProviderStateMixin {
         return Colors.blue;
       case 'completed':
         return Colors.green;
+      case 'cancelled':
+        return Colors.red;
       default:
         return Colors.grey;
     }
@@ -238,6 +330,8 @@ class _HistoryState extends State<History> with SingleTickerProviderStateMixin {
         return 'Đã xác nhận';
       case 'completed':
         return 'Đã thực hiện';
+      case 'cancelled':
+        return 'Đã hủy';
       default:
         return 'Không rõ';
     }
@@ -259,10 +353,15 @@ class _HistoryState extends State<History> with SingleTickerProviderStateMixin {
             onPressed: () async {
               Navigator.pop(context); // đóng dialog
               try {
-                await FirebaseFirestore.instance.collection('dat_lich').doc(docId).delete();
+                await FirebaseFirestore.instance
+                    .collection('dat_lich')
+                    .doc(docId)
+                    .update({'status': 'cancelled'}); // ⚠️ Cập nhật thay vì xóa
+
                 if (mounted) {
-                  setState(() {}); // cập nhật lại danh sách
+                  setState(() {});
                 }
+
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(content: Text('Đã huỷ đơn đặt phòng')),
                 );
@@ -292,6 +391,20 @@ class _HistoryState extends State<History> with SingleTickerProviderStateMixin {
 
     if (result == true && mounted) {
       setState(() {}); // Cập nhật lại danh sách sau khi chỉnh sửa
+    }
+  }
+
+  void _navigateToRating(Map<String, dynamic> booking) async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => DanhGiaPage(bookingData: booking),
+      ),
+    );
+
+    if (result == true && mounted) {
+      // 🔁 Refetch lại danh sách
+      await loadBookings();
     }
   }
 }

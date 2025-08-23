@@ -2,7 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'package:bookingapp/pages/detail_page.dart';
-import '../models/favorite_provider.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:convert';
+import 'package:provider/provider.dart';
+import 'package:bookingapp/models/favorite_provider.dart';
+
 
 class HotelRoomListPage extends StatefulWidget {
   final String branchId;
@@ -27,6 +32,16 @@ class _HotelRoomListPageState extends State<HotelRoomListPage> {
     });
   }
 
+  @override
+  void initState() {
+    super.initState();
+    // Force reload favorites in case it was changed before arriving here
+    Future.microtask(() {
+      Provider.of<FavoritesProvider>(context, listen: false).loadFavorites();
+    });
+  }
+
+
   List<QueryDocumentSnapshot> _sortRooms(
       List<QueryDocumentSnapshot> rooms, String filter) {
     final List<QueryDocumentSnapshot> sortedRooms = List.from(rooms);
@@ -45,7 +60,6 @@ class _HotelRoomListPageState extends State<HotelRoomListPage> {
             (b['rating'] ?? 0).compareTo(a['rating'] ?? 0));
         break;
     }
-
     return sortedRooms;
   }
 
@@ -79,46 +93,63 @@ class _HotelRoomListPageState extends State<HotelRoomListPage> {
                       _sortRooms(snapshot.data!.docs, _selectedFilter);
 
                   return ListView.builder(
+                    physics: const BouncingScrollPhysics(),
+                    cacheExtent: 1000,
                     padding: const EdgeInsets.symmetric(horizontal: 12),
                     itemCount: rooms.length,
                     itemBuilder: (context, index) {
-                      final data =
-                          rooms[index].data() as Map<String, dynamic>;
+                      final doc  = rooms[index];
+                      final data = doc.data() as Map<String, dynamic>;
 
+                      // Chuẩn hoá dữ liệu
                       final List<String> imageUrls = (data['imageUrls'] is List)
-                        ? List<String>.from(data['imageUrls'])
-                        : [];
+                          ? List<String>.from((data['imageUrls'] as List).whereType())
+                              .map((e) => e.toString())
+                              .toList()
+                          : <String>[];
 
-                      final String description =
-                          (data['description'] is String &&
-                                  data['description']
-                                      .toString()
-                                      .trim()
-                                      .isNotEmpty)
-                              ? data['description']
-                              : 'Không có mô tả';
+                      final String description = (data['description'] is String && data['description'].toString().trim().isNotEmpty)
+                          ? data['description']
+                          : 'Không có mô tả';
 
-                      final String title =
-                          (data['name'] is String &&
-                                  data['name']
-                                      .toString()
-                                      .trim()
-                                      .isNotEmpty)
-                              ? data['name']
-                              : 'Không có tiêu đề';
+                      final String title = (data['name'] is String && data['name'].toString().trim().isNotEmpty)
+                          ? data['name']
+                          : 'Không có tiêu đề';
 
-                      final String price =
-                          data['price']?.toString() ?? '0';
-                      final String rating =
-                          data['rating']?.toString() ?? '0';
+                      // Để hiển thị trên Card
+                      final String priceStr = (data['price'] is num)
+                          ? (data['price'] as num).toString()
+                          : (data['price']?.toString() ?? '0');
 
-                      return HotelRoomCard(
-                        imageUrls: imageUrls,
-                        imageDescription: description,
-                        title: title,
-                        price: price,
-                        rating: rating,
-                        roomData: data,
+                      final String ratingStr = (data['rating'] is num)
+                          ? (data['rating'] as num).toStringAsFixed(1)
+                          : (data['rating']?.toString() ?? '0');
+
+                      // 👉 QUAN TRỌNG: Truyền roomId (doc.id) vào roomData để DetailPage subscribe realtime
+                      final Map<String, dynamic> roomDataForDetail = {
+                        ...data,
+                        'roomId': doc.id,
+                      };
+
+                      return Selector<FavoritesProvider, bool>(
+                        selector: (_, p) => p.isFavorite(doc.id),
+                        builder: (context, isLiked, _) {
+                          return HotelRoomCard(
+                            imageUrls: imageUrls,
+                            imageDescription: description,
+                            title: title,
+                            price: priceStr,
+                            roomData: roomDataForDetail,
+                            roomId: doc.id,
+                            // 👉 truyền isLiked & onLikePressed để card hiển thị/toggle
+                            isLiked: isLiked,
+                            onLikePressed: () {
+                              context.read<FavoritesProvider>().toggleFavorite({
+                                ...roomDataForDetail, // đã có 'roomId': doc.id
+                              });
+                            },
+                          );
+                        },
                       );
                     },
                   );
@@ -222,8 +253,10 @@ class HotelRoomCard extends StatefulWidget {
   final String imageDescription;
   final String title;
   final String price;
-  final String rating;
   final Map<String, dynamic> roomData;
+  final String roomId; // Thêm roomId để query đánh giá
+  final bool isLiked;               
+  final VoidCallback? onLikePressed;
 
   const HotelRoomCard({
     super.key,
@@ -231,8 +264,10 @@ class HotelRoomCard extends StatefulWidget {
     required this.imageDescription,
     required this.title,
     required this.price,
-    required this.rating,
     required this.roomData,
+    required this.roomId, // Thêm vào constructor
+    required this.isLiked,            // NEW
+    this.onLikePressed,
   });
 
   @override
@@ -242,6 +277,8 @@ class HotelRoomCard extends StatefulWidget {
 class _HotelRoomCardState extends State<HotelRoomCard> {
   late PageController _pageController;
   int _currentPage = 0;
+  double averageRating = 0;
+  int reviewCount = 0;
 
   @override
   void initState() {
@@ -258,7 +295,7 @@ class _HotelRoomCardState extends State<HotelRoomCard> {
   String formatPrice(String rawPrice) {
     try {
       final double priceValue = double.parse(rawPrice);
-      final NumberFormat currencyFormatter =
+      final NumberFormat currencyFormatter = 
           NumberFormat.currency(locale: 'vi_VN', symbol: 'VND');
       return '${currencyFormatter.format(priceValue)}/đêm';
     } catch (_) {
@@ -268,172 +305,209 @@ class _HotelRoomCardState extends State<HotelRoomCard> {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => DetailPage(roomData: widget.roomData),
-          ),
-        );
-      },
-      child: Card(
-        color: const Color.fromARGB(255, 248, 247, 253),
-        elevation: 2,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        margin: const EdgeInsets.only(bottom: 24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Stack(
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('danh_gia')
+          .where('roomId', isEqualTo: widget.roomId)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.hasData && snapshot.data!.docs.isNotEmpty) {
+          double totalRating = 0;
+          reviewCount = snapshot.data!.docs.length;
+          
+          for (var doc in snapshot.data!.docs) {
+            final rating = (doc.data() as Map<String, dynamic>)['rating'] as num? ?? 0;
+            totalRating += rating.toDouble();
+          }
+          
+          averageRating = totalRating / reviewCount;
+        } else {
+          averageRating = 0;
+          reviewCount = 0;
+        }
+
+        return GestureDetector(
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => DetailPage(roomData: widget.roomData),
+              ),
+            );
+          },
+          child: Card(
+            color: const Color.fromARGB(255, 248, 247, 253),
+            elevation: 2,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            margin: const EdgeInsets.only(bottom: 24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                SizedBox(
-                  height: 320,
-                  child: widget.imageUrls.isNotEmpty
-                      ? PageView.builder(
-                          controller: _pageController,
-                          itemCount: widget.imageUrls.length,
-                          onPageChanged: (index) {
-                            setState(() => _currentPage = index);
-                          },
-                          itemBuilder: (context, index) {
-                            final url = widget.imageUrls[index];
-                            return ClipRRect(
-                              borderRadius: const BorderRadius.vertical(
-                                  top: Radius.circular(16)),
-                              child: Image.network(
-                                url,
-                                width: double.infinity,
-                                fit: BoxFit.cover,
-                                errorBuilder: (context, error, stackTrace) {
-                                  return Container(
-                                    color: Colors.grey[300],
-                                    child: const Center(
-                                      child: Icon(Icons.broken_image,
-                                          size: 48, color: Colors.grey),
+                // Phần hình ảnh (giữ nguyên)
+                Stack(
+                  children: [
+                    SizedBox(
+                      height: 320,
+                      child: widget.imageUrls.isNotEmpty
+                          ? PageView.builder(
+                              controller: _pageController,
+                              itemCount: widget.imageUrls.length,
+                              onPageChanged: (index) {
+                                setState(() => _currentPage = index);
+                              },
+                              itemBuilder: (context, index) {
+                                final url = widget.imageUrls[index];
+                                return ClipRRect(
+                                  borderRadius: const BorderRadius.vertical(
+                                      top: Radius.circular(16)),
+                                  child: CachedNetworkImage(
+                                    imageUrl: url,
+                                    width: double.infinity,
+                                    fit: BoxFit.cover,
+                                    placeholder: (context, url) => Container(
+                                      color: Colors.grey[300],
+                                      child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
                                     ),
-                                  );
-                                },
+                                    errorWidget: (context, url, error) => Container(
+                                      color: Colors.grey[300],
+                                      child: const Center(
+                                        child: Icon(Icons.broken_image, size: 48, color: Colors.grey),
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              },
+                            )
+                          : Container(
+                              height: 320,
+                              width: double.infinity,
+                              color: Colors.grey[300],
+                              child: const Center(
+                                child: Icon(Icons.image_not_supported,
+                                    size: 48, color: Colors.grey),
+                              ),
+                            ),
+                    ),
+                    if (widget.imageUrls.length > 1)
+                      Positioned(
+                        bottom: 12,
+                        left: 0,
+                        right: 0,
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: List.generate(widget.imageUrls.length, (index) {
+                            final isActive = index == _currentPage;
+                            return AnimatedContainer(
+                              duration: const Duration(milliseconds: 300),
+                              margin: const EdgeInsets.symmetric(horizontal: 3),
+                              width: isActive ? 10 : 6,
+                              height: isActive ? 10 : 6,
+                              decoration: BoxDecoration(
+                                color: isActive
+                                    ? Colors.white
+                                    : Colors.white.withOpacity(0.6),
+                                shape: BoxShape.circle,
                               ),
                             );
-                          },
-                        )
-                      : Container(
-                          height: 320,
-                          width: double.infinity,
-                          color: Colors.grey[300],
-                          child: const Center(
-                            child: Icon(Icons.image_not_supported,
-                                size: 48, color: Colors.grey),
-                          ),
+                          }),
                         ),
-                ),
-                // Nút yêu thích
-                Positioned(
-                  top: 12,
-                  right: 12,
-                  child: Container(
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: Colors.white,
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.1),
-                          blurRadius: 4,
-                          offset: const Offset(0, 2),
-                        ),
-                      ],
-                    ),
-                    child: IconButton(
-                      icon: const Icon(Icons.favorite_border,
-                          color: Color(0xFF999999), size: 20),
-                      onPressed: () {},
-                      tooltip: 'Yêu thích',
-                    ),
-                  ),
-                ),
-                // Dot indicators
-                if (widget.imageUrls.length > 1)
-                  Positioned(
-                    bottom: 12,
-                    left: 0,
-                    right: 0,
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: List.generate(widget.imageUrls.length, (index) {
-                        final isActive = index == _currentPage;
-                        return AnimatedContainer(
-                          duration: const Duration(milliseconds: 300),
-                          margin: const EdgeInsets.symmetric(horizontal: 3),
-                          width: isActive ? 10 : 6,
-                          height: isActive ? 10 : 6,
-                          decoration: BoxDecoration(
-                            color: isActive
-                                ? Colors.white
-                                : Colors.white.withOpacity(0.6),
-                            shape: BoxShape.circle,
-                          ),
-                        );
-                      }),
-                    ),
-                  ),
-              ],
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 12, 12, 16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          widget.title,
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w700,
-                            fontSize: 16,
-                            color: Colors.black87,
+                      ),
+                      Positioned(
+                        top: 12,
+                        right: 12,
+                        child: GestureDetector(
+                          onTap: widget.onLikePressed,
+                          child: Container(
+                            width: 32,
+                            height: 32,
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.9),
+                              shape: BoxShape.circle,
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.08),
+                                  blurRadius: 6,
+                                  offset: const Offset(0, 2),
+                                ),
+                              ],
+                            ),
+                            child: Icon(
+                              widget.isLiked ? Icons.favorite : Icons.favorite_border,
+                              size: 18,
+                              color: widget.isLiked ? Colors.purple : Colors.purple[200],
+                            ),
                           ),
                         ),
                       ),
-                      const Icon(Icons.star, size: 14, color: Colors.amber),
-                      const SizedBox(width: 4),
+                  ],
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 12, 12, 16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              widget.title,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                                fontSize: 16,
+                                color: Colors.black87,
+                              ),
+                            ),
+                          ),
+                          const Icon(Icons.star, size: 14, color: Colors.amber),
+                          const SizedBox(width: 4),
+                          Text(
+                            averageRating.toStringAsFixed(1),
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 14,
+                              color: Colors.black87,
+                            ),
+                          ),
+                          if (reviewCount > 0) ...[
+                            const SizedBox(width: 4),
+                            Text(
+                              '($reviewCount)',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey[600],
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                      const SizedBox(height: 4),
                       Text(
-                        widget.rating,
+                        widget.imageDescription,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w400,
+                          fontSize: 14,
+                          color: Colors.black54,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        formatPrice(widget.price),
                         style: const TextStyle(
                           fontWeight: FontWeight.w700,
-                          fontSize: 14,
+                          fontSize: 16,
                           color: Colors.black87,
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    widget.imageDescription,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w400,
-                      fontSize: 14,
-                      color: Colors.black54,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    formatPrice(widget.price),
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w700,
-                      fontSize: 16,
-                      color: Colors.black87,
-                    ),
-                  ),
-                ],
-              ),
+                ),
+              ],
             ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 }

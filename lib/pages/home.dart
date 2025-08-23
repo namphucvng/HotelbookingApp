@@ -3,6 +3,15 @@ import 'package:flutter/material.dart';
 import 'mylist.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter_image_compress/flutter_image_compress.dart';
+import 'dart:typed_data';
+import 'dart:io';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:convert';
+import 'package:provider/provider.dart';
+import 'package:bookingapp/models/favorite_provider.dart';
+import 'package:bookingapp/pages/search_result.dart';
 
 class Home extends StatefulWidget {
   const Home({super.key});
@@ -11,52 +20,41 @@ class Home extends StatefulWidget {
   State<Home> createState() => _HomeState();
 }
 
+Future<Uint8List?> compressImage(File file) async {
+  return await FlutterImageCompress.compressWithFile(
+    file.path,
+    minWidth: 800,
+    minHeight: 800,
+    quality: 75,
+  );
+}
+
 
 // ngoc them phan tien nghi 
 const List<Map<String, dynamic>> amenities = [
-  {"name": "Free Wi‑Fi",      "icon": Icons.wifi},
-  {"name": "Gym",             "icon": Icons.fitness_center},
-  {"name": "Bữa sáng",        "icon": Icons.breakfast_dining},
-  {"name": "Bể bơi",          "icon": Icons.pool},
-  {"name": "Bãi xe",          "icon": Icons.local_parking},
-  {"name": "Pet Friendly",    "icon": Icons.pets},
+  {"name": "Wifi", "icon": Icons.wifi},
+  {"name": "Gym", "icon": Icons.fitness_center},
+  {"name": "Bữa sáng", "icon": Icons.breakfast_dining},
+  {"name": "Bể bơi", "icon": Icons.pool},
+  {"name": "Chỗ đậu xe", "icon": Icons.local_parking},
+  {"name": "Pet Friendly", "icon": Icons.pets},
+  {"name": "Giặt ủi", "icon": Icons.local_laundry_service},
+  {"name": "Bar", "icon": Icons.local_bar},
+  {"name": "Xe đưa đón", "icon": Icons.airport_shuttle},
+  {"name": "Spa", "icon": Icons.spa},
 ];
 
-// ngoc them phan dich vu
-const List<Map<String, String>> services = [
-  {
-    "name": "Chèo Kayak",
-    "image": "https://images.pexels.com/photos/1371360/pexels-photo-1371360.jpeg"
-  },
-  {
-    "name": "Tắm biển",
-    "image": "https://images.pexels.com/photos/457882/pexels-photo-457882.jpeg"
-  },
-  {
-    "name": "Lặn ngắm San hô",
-    "image": "https://images.pexels.com/photos/3046582/pexels-photo-3046582.jpeg"
-  },
-  {
-    "name": "Dù lượn",
-    "image": "https://images.pexels.com/photos/2132116/pexels-photo-2132116.jpeg"
-  },
-  {
-    "name": "Công viên nước",
-    "image": "https://images.pexels.com/photos/338504/pexels-photo-338504.jpeg"
-  },
-];
 
 class _HomeState extends State<Home> {
   int _selectedTab = 0;
+  String _searchKeyword = '';
 
   // ngoc them
   final Set<String> _selectedAmenities = {};   // lưu các tiện nghi đang được chọn
-  final Set<String> _selectedServices  = {};  // lưu các dịch vụ đang được chọn
 
   final List<TabItem> tabs = [
     TabItem(icon: Icons.room, label: 'Phòng'),
     TabItem(icon: Icons.widgets, label: 'Tiện nghi'),
-    TabItem(icon: Icons.room_service_outlined, label: 'Dịch vụ'),
   ];
 
   @override
@@ -64,7 +62,13 @@ class _HomeState extends State<Home> {
     return SafeArea(
       child: Column(
         children: [
-          const SearchBar(),
+          SearchBar(
+            onChanged: (value) {
+              setState(() {
+                _searchKeyword = value.toLowerCase();
+              });
+            },
+          ),
           Tabs(
             tabs: tabs,
             selectedIndex: _selectedTab,
@@ -79,10 +83,8 @@ class _HomeState extends State<Home> {
               child: Container(
                 color: Colors.white,
                 child: _selectedTab == 0
-                    ? const StaysTabContent()
-                    : _selectedTab == 1
-                        ? const ExperiencesSection()
-                        : const ServicesSection(),
+                    ? StaysTabContent(searchKeyword: _searchKeyword)
+                    : const ExperiencesSection(),
               ),
             ),
           ),
@@ -91,6 +93,7 @@ class _HomeState extends State<Home> {
     );
   }
 }
+
 
 String formatCurrency(String priceString) {
   try {
@@ -102,8 +105,31 @@ String formatCurrency(String priceString) {
   }
 }
 
-class SearchBar extends StatelessWidget {
-  const SearchBar({super.key});
+class SearchBar extends StatefulWidget {
+  final ValueChanged<String> onChanged;
+  const SearchBar({super.key, required this.onChanged});
+
+  @override
+  State<SearchBar> createState() => _SearchBarState();
+}
+
+class _SearchBarState extends State<SearchBar> {
+  final TextEditingController _controller = TextEditingController();
+
+  void _submitSearch() {
+    final keyword = _controller.text.trim();
+    if (keyword.isNotEmpty) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => SearchResultPage(searchKeyword: keyword),
+        ),
+      ).then((_) {
+        // Clear khi quay lại
+        _controller.clear();
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -123,14 +149,23 @@ class SearchBar extends StatelessWidget {
         ),
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
         child: Row(
-          children: const [
-            Icon(Icons.search, size: 20, color: Colors.black),
-            SizedBox(width: 8),
+          children: [
+            const Icon(Icons.search, size: 20, color: Colors.black),
+            const SizedBox(width: 8),
             Expanded(
-              child: Text(
-                'Tìm kiếm',
-                style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16, color: Colors.black),
+              child: TextField(
+                controller: _controller,
+                onSubmitted: (_) => _submitSearch(),
+                decoration: const InputDecoration(
+                  hintText: 'Tìm kiếm',
+                  border: InputBorder.none,
+                  isDense: true,
+                ),
               ),
+            ),
+            GestureDetector(
+              onTap: _submitSearch,
+              child: const Icon(Icons.arrow_forward, color: Colors.deepPurple),
             ),
           ],
         ),
@@ -138,6 +173,7 @@ class SearchBar extends StatelessWidget {
     );
   }
 }
+
 
 class TabItem {
   final IconData icon;
@@ -203,12 +239,15 @@ class Tabs extends StatelessWidget {
 }
 
 class StaysTabContent extends StatelessWidget {
-  const StaysTabContent({super.key});
+  final String searchKeyword;
+
+  const StaysTabContent({super.key, required this.searchKeyword});
 
   @override
   Widget build(BuildContext context) {
     final firestore = FirebaseFirestore.instance;
-
+    final VoidCallback? onLikePressed;
+    
     return FutureBuilder(
       future: Future.wait([
         firestore.collection('branches').get(),
@@ -248,16 +287,31 @@ class StaysTabContent extends StatelessWidget {
             final branchId = branchDoc.id;
             final rooms = branchRoomsMap[branchId] ?? [];
 
-            final cards = rooms.map((roomDoc) {
+            final filteredRooms = rooms.where((roomDoc) {
+              final roomData = roomDoc.data();
+              // Chuẩn hóa dữ liệu tìm kiếm
+              final roomName = (roomData['name'] ?? '').toString().toLowerCase();
+              final roomType = (roomData['type'] ?? '').toString().toLowerCase();
+              final branchNameLower = branchName.toLowerCase();
+
+              // Kiểm tra từ khóa có xuất hiện trong bất kỳ trường nào
+              return roomName.contains(searchKeyword) ||
+                    roomType.contains(searchKeyword) ||
+                    branchNameLower.contains(searchKeyword);
+            }).toList();
+
+            final List<StayCard> cards = filteredRooms.map((roomDoc) {
               final roomData = roomDoc.data();
               final imageUrls = roomData['imageUrls'] ?? [];
               final String imageUrl = (imageUrls.isNotEmpty) ? imageUrls[0] : '';
+              final roomId = roomDoc.id.toString();
 
               return StayCard(
                 imagePath: imageUrl,
                 title: roomData['name'] ?? '',
                 price: roomData['price']?.toString() ?? '',
-                rating: roomData['rating']?.toString() ?? '0.0',
+                roomId: roomId, // Truyền roomId vào để query đánh giá
+                isLiked: Provider.of<FavoritesProvider>(context).isFavorite(roomId),
                 onTap: () {
                   Navigator.push(
                     context,
@@ -265,27 +319,34 @@ class StaysTabContent extends StatelessWidget {
                       builder: (_) => DetailPage(
                         roomData: {
                           ...roomData,
-                          'roomId': roomDoc.id,
+                          'roomId': roomId,
                         },
                       ),
                     ),
                   );
                 },
+                onLikePressed: () {
+                  Provider.of<FavoritesProvider>(context, listen: false).toggleFavorite({
+                    ...roomData,
+                    'roomId': roomId,
+                  });
+                },
               );
-            }).toList();
+            }).toList(); 
 
             return ReusableStaysSection(
               title: branchTitle,
               cards: cards.isNotEmpty
-                  ? cards.cast<StayCard>()
-                  : [const StayCard(
+                  ? cards
+                  : [StayCard( // Sửa từ const StayCard thành StayCard
                       imagePath: '',
                       title: 'Chưa có phòng',
                       price: '',
-                      rating: '',
+                      roomId: '', // Thêm roomId rỗng
+                      isLiked: false, // Thêm giá trị mặc định
                     )],
               branchId: branchId,
-              branchName: branchName, // 👈 Thêm dòng này để truyền đúng tên
+              branchName: branchName,
             );
           }).toList(),
         );
@@ -323,6 +384,7 @@ class ReusableStaysSection extends StatelessWidget {
               scrollDirection: Axis.horizontal,
               itemCount: cards.length,
               separatorBuilder: (context, index) => const SizedBox(width: 12),
+              cacheExtent: 500,
               itemBuilder: (context, index) => cards[index],
             ),
           ),
@@ -393,127 +455,414 @@ class StayCard extends StatelessWidget {
   final String imagePath;
   final String title;
   final String price;
-  final String rating;
+  final String roomId;
   final bool isLiked;
   final VoidCallback? onTap;
+  final VoidCallback? onLikePressed;
 
   const StayCard({
     super.key,
     required this.imagePath,
     required this.title,
     required this.price,
-    required this.rating,
+    required this.roomId,
     this.isLiked = false,
     this.onTap,
+    this.onLikePressed,
   });
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector( 
-      onTap: onTap,
-      child: SizedBox(
-        width: 200,
-        height: 250,
-        child: Card(
-          color: const Color.fromARGB(255, 248, 247, 253),
-          elevation: 1,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          clipBehavior: Clip.antiAlias,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Stack(
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('danh_gia')
+          .where('roomId', isEqualTo: roomId)
+          .snapshots(),
+      builder: (context, snapshot) {
+        // Tính toán rating trung bình
+        double averageRating = 0;
+        int reviewCount = 0;
+
+        if (snapshot.hasData && snapshot.data!.docs.isNotEmpty) {
+          double totalRating = 0;
+          reviewCount = snapshot.data!.docs.length;
+          
+          for (var doc in snapshot.data!.docs) {
+            final rating = (doc.data() as Map<String, dynamic>)['rating'] as num? ?? 0;
+            totalRating += rating.toDouble();
+          }
+          
+          averageRating = totalRating / reviewCount;
+        }
+
+        return GestureDetector(
+          onTap: onTap,
+          child: SizedBox(
+            width: 200,
+            height: 250,
+            child: Card(
+              color: const Color.fromARGB(255, 248, 247, 253),
+              elevation: 1,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Image.network(
-                    imagePath,
-                    width: 200,
-                    height: 140,
-                    fit: BoxFit.cover,
-                    errorBuilder: (context, error, stackTrace) => const Icon(Icons.broken_image),
+                  Stack(
+                    children: [
+                      CachedNetworkImage(
+                        imageUrl: imagePath,
+                        width: 200,
+                        height: 140,
+                        fit: BoxFit.cover,
+                        placeholder: (context, url) => Container(
+                          color: Colors.grey[300],
+                        ),
+                        errorWidget: (context, url, error) => const Icon(Icons.broken_image),
+                      ),
+                      Positioned(
+                        top: 8,
+                        right: 8,
+                        child: GestureDetector(
+                          onTap: onLikePressed,
+                          child: Container(
+                            width: 28,
+                            height: 28,
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.8),
+                              shape: BoxShape.circle,
+                            ),
+                            child: Icon(
+                              isLiked ? Icons.favorite : Icons.favorite_border,
+                              size: 16,
+                              color: isLiked ? Colors.purple : Colors.purple[200],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                  Positioned(
-                    top: 8,
-                    right: 8,
-                    child: Container(
-                      width: 28,
-                      height: 28,
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.8),
-                        shape: BoxShape.circle,
-                      ),
-                      child: Icon(
-                        isLiked ? Icons.favorite : Icons.favorite_border,
-                        size: 16,
-                        color: isLiked ? Colors.red.shade900 : Colors.grey.shade700,
-                      ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '${formatCurrency(price)} VND/đêm',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            const Icon(Icons.star, color: Colors.amber, size: 16),
+                            const SizedBox(width: 4),
+                            Text(
+                              averageRating.toStringAsFixed(1),
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            if (reviewCount > 0) ...[
+                              const SizedBox(width: 4),
+                              Text(
+                                '($reviewCount)',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey[600],
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ],
                     ),
                   ),
                 ],
               ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
-                          ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      '${formatCurrency(price)} VND/đêm',
-                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                            fontWeight: FontWeight.bold,
-                          ),
-                    ),
-                    const SizedBox(height: 2),
-                    Row(
-                      children: [
-                        const Text('★', style: TextStyle(color: Colors.amber)),
-                        const SizedBox(width: 4),
-                        Text(
-                          rating,
-                          style: Theme.of(context).textTheme.labelSmall?.copyWith(color: Colors.black),
-                        ),
-                      ],
-                    ),
-                  ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class ExperiencesSection extends StatefulWidget {
+  const ExperiencesSection({super.key});
+
+  @override
+  State<ExperiencesSection> createState() => _ExperiencesSectionState();
+}
+
+class _ExperiencesSectionState extends State<ExperiencesSection> {
+  final Set<String> _selected = {};
+
+  void _clearSelection() {
+    setState(() => _selected.clear());
+  }
+
+  void _search() {
+    if (_selected.isEmpty) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => AmenitySearchResults(
+          selectedAmenities: _selected.toList(),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        // Thanh hành động: Bỏ chọn + Tìm kiếm
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+          child: Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: _selected.isEmpty ? null : _clearSelection,
+                  child: const Text('Bỏ chọn'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: _selected.isEmpty ? null : _search,
+                  icon: const Icon(Icons.search),
+                  label: Text(
+                    _selected.isEmpty
+                        ? 'Tìm kiếm'
+                        : 'Tìm (${_selected.length})',
+                  ),
                 ),
               ),
             ],
           ),
         ),
+
+        // Lưới tiện nghi
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 3,
+              mainAxisSpacing: 16,
+              crossAxisSpacing: 16,
+              childAspectRatio: 1,
+            ),
+            itemCount: amenities.length,
+            itemBuilder: (context, index) {
+              final amenity = amenities[index];
+              final String name = amenity['name'] as String;
+              final IconData icon = amenity['icon'] as IconData;
+              final bool isSelected = _selected.contains(name);
+
+              return GestureDetector(
+                onTap: () {
+                  setState(() {
+                    if (isSelected) {
+                      _selected.remove(name);
+                    } else {
+                      _selected.add(name);
+                    }
+                  });
+                },
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: Colors.deepPurple.shade50,
+                        border: isSelected
+                            ? Border.all(
+                                color: Colors.deepPurple.shade200, width: 2)
+                            : null,
+                      ),
+                      padding: const EdgeInsets.all(12),
+                      child: Icon(
+                        icon,
+                        color: Colors.deepPurple,
+                        size: isSelected ? 30 : 24,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      name,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight:
+                            isSelected ? FontWeight.bold : FontWeight.normal,
+                        color: Colors.black,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class AmenitySearchResults extends StatelessWidget {
+  final List<String> selectedAmenities;
+  const AmenitySearchResults({super.key, required this.selectedAmenities});
+
+  bool _hasAllAmenities(Map<String, dynamic> data) {
+    final am = (data['amenities'] as List<dynamic>? ?? []).map((e) => e.toString()).toSet();
+    return selectedAmenities.every(am.contains);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final base = FirebaseFirestore.instance.collection('hotels');
+    final Query<Map<String, dynamic>> q = (selectedAmenities.isEmpty)
+        ? base
+        : base.where('amenities', arrayContainsAny: selectedAmenities);
+
+    return Scaffold(
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        elevation: 0,
+        iconTheme: const IconThemeData(color: Colors.deepPurple),
+        title: const Text(
+          'Kết quả theo tiện nghi',
+          style: TextStyle(
+            color: Colors.deepPurple,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ),
+      body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+        stream: q.snapshots(),
+        builder: (context, snap) {
+          if (snap.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (snap.hasError) {
+            return Center(child: Text('Lỗi: ${snap.error}'));
+          }
+
+          final docs = snap.data?.docs ?? [];
+          final rooms = docs.where((d) => _hasAllAmenities(d.data())).toList();
+
+          if (rooms.isEmpty) {
+            return const Center(child: Text('Không tìm thấy phòng phù hợp.'));
+          }
+
+          return ListView.builder(
+            padding: const EdgeInsets.all(12),
+            itemCount: rooms.length,
+            itemBuilder: (context, index) {
+              final roomDoc = rooms[index];
+              final roomData = roomDoc.data();
+              final List<String> imageUrls =
+                  (roomData['imageUrls'] as List<dynamic>? ?? [])
+                      .map((e) => e.toString())
+                      .toList();
+              final imageUrl = imageUrls.isNotEmpty ? imageUrls.first : '';
+
+              return Card(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: InkWell(
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => DetailPage(
+                          roomData: {
+                            ...roomData,
+                            'roomId': roomDoc.id,
+                          },
+                        ),
+                      ),
+                    );
+                  },
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      imageUrl.isNotEmpty
+                          ? CachedNetworkImage(
+                              imageUrl: imageUrl,
+                              height: 180,
+                              width: double.infinity,
+                              fit: BoxFit.cover,
+                              placeholder: (context, url) => Container(
+                                height: 180,
+                                color: Colors.grey[200],
+                              ),
+                              errorWidget: (context, url, error) =>
+                                  const Icon(Icons.broken_image, size: 80),
+                            )
+                          : Container(
+                              height: 180,
+                              color: Colors.grey[200],
+                              child: const Icon(Icons.broken_image, size: 80),
+                            ),
+                      Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              roomData['name'] ?? 'Không tên',
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              '${NumberFormat("#,###", "vi_VN").format(int.tryParse(roomData['price']?.toString() ?? "0") ?? 0).replaceAll(",", ".")} VND/đêm',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w600,
+                                color: Colors.deepPurple,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          );
+        },
       ),
     );
   }
 }
 
-class ExperiencesSection extends StatelessWidget {
-  const ExperiencesSection({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return const Center(
-      child: Text('Trải nghiệm (Nội dung chưa có)', style: TextStyle(fontSize: 16, color: Colors.grey)),
-    );
-  }
-}
-
-class ServicesSection extends StatelessWidget {
-  const ServicesSection({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return const Center(
-      child: Text('Dịch vụ (Nội dung chưa có)', style: TextStyle(fontSize: 16, color: Colors.grey)),
-    );
-  }
-}
 
 class BottomNavItem {
   final IconData icon;

@@ -1,3 +1,4 @@
+import 'package:bookingapp/hotelowner/ad_home_page.dart';
 import 'package:bookingapp/hotelowner/addbranch.dart';
 import 'package:bookingapp/hotelowner/addroom.dart';
 import 'package:bookingapp/hotelowner/addroomtype.dart';
@@ -11,30 +12,29 @@ import 'package:bookingapp/pages/login.dart';
 import 'package:bookingapp/pages/signup.dart';
 import 'package:bookingapp/pages/splash.dart';
 import 'package:bookingapp/pages/start.dart';
-import 'package:bookingapp/sceens/danhgia.dart';
+import 'package:bookingapp/sceens/feedback.dart';
 import 'package:bookingapp/sceens/datlich.dart';
 import 'package:bookingapp/sceens/dinhvi.dart';
 import 'package:bookingapp/sceens/theodoixe.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
-
-//ngoc them
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';            // Provider
-import 'models/favorite_provider.dart';             // Yêu thích
+import 'models/favorite_provider.dart';  
+import 'package:firebase_core/firebase_core.dart';
 
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  final favoritesProvider = FavoritesProvider();
+  await favoritesProvider.loadFavorites();
   await Firebase.initializeApp();
-  
-
   runApp(
     MultiProvider(
       providers: [
-        ChangeNotifierProvider(
-          create: (_) => FavoriteProvider()..loadFavorites(), // Load danh sách yêu thích khi app khởi động
-        ),
+        ChangeNotifierProvider(create: (_) => FavoritesProvider()),
       ],
       child: const MyApp(),
     ),
@@ -44,28 +44,26 @@ void main() async {
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
-  // This widget is the root of your application.
+  @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Booking',
+      title: 'Booking App',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(primarySwatch: Colors.deepPurple),
-      
-      // ⚠️ CẦN THÊM ĐOẠN NÀY ĐỂ HỖ TRỢ VI (tiếng Việt) CHO DatePicker
       localizationsDelegates: const [
         GlobalMaterialLocalizations.delegate,
         GlobalWidgetsLocalizations.delegate,
         GlobalCupertinoLocalizations.delegate,
       ],
       supportedLocales: const [
-        Locale('vi', 'VN'), // Tiếng Việt
-        Locale('en', 'US'), // Tiếng Anh (dự phòng)
+        Locale('vi', 'VN'),
+        Locale('en', 'US'),
       ],
-      
       home: const SplashScreen(),
     );
   }
 }
+
 
 class MyHomePage extends StatefulWidget {
   const MyHomePage({super.key, required this.title});

@@ -30,7 +30,7 @@ class SplashScreen extends StatefulWidget {
     void initState() {
       super.initState();
       Timer(const Duration(seconds: 5), () {
-        Navigator.pushReplacement(
+        Navigator.push(
           context,
           MaterialPageRoute(builder: (context) => const StartPage()),
         );
@@ -90,7 +90,7 @@ class SplashScreen extends StatefulWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Image.asset(
-                    'images/logo2.png',
+                    'images/logo3.png',
                     width: 240,
                     fit: BoxFit.contain,
                   ),
