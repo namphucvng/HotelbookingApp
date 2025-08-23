@@ -7,7 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:firebase_core/firebase_core.dart';
-
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 void main() {
   runApp(const LogIn());
@@ -110,37 +110,60 @@ class _LogInPageState extends State<LogInPage> {
   }
 
   Future<void> signInWithGoogle(BuildContext context) async {
-    try {
-      final GoogleSignIn googleSignIn = GoogleSignIn();
-      final GoogleSignInAccount? googleUser = await googleSignIn.signIn();
+      try {
+        final GoogleSignInAccount? googleUser = await GoogleSignIn().signIn();
+        if (googleUser == null) return; // user cancel
 
-      if (googleUser == null) {
-        // Người dùng hủy đăng nhập
-        return;
-      }
+        final googleAuth = await googleUser.authentication;
+        final credential = GoogleAuthProvider.credential(
+          accessToken: googleAuth.accessToken,
+          idToken: googleAuth.idToken,
+        );
 
-      final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
+        await FirebaseAuth.instance.signInWithCredential(credential);
 
-      final AuthCredential credential = GoogleAuthProvider.credential(
-        accessToken: googleAuth.accessToken,
-        idToken: googleAuth.idToken,
-      );
+        // 👉 ĐẢM BẢO users/{uid} tồn tại
+        final user = FirebaseAuth.instance.currentUser;
+        if (user != null) {
+          await _ensureUserDocument(user);
+        }
 
-      await FirebaseAuth.instance.signInWithCredential(credential);
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Đăng nhập Google thành công")),
-      );
-
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (context) => const Bottomnav()),
-      );
-    } catch (e) {
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Đăng nhập Google thành công")),
+        );
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const Bottomnav()),
+        );
+      } catch (e) {
       debugPrint("Lỗi đăng nhập Google: $e");
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("Đăng nhập bằng Google thất bại")),
       );
+    }
+  }
+
+  Future<void> _ensureUserDocument(User user) async {
+    final ref = FirebaseFirestore.instance.collection('users').doc(user.uid);
+    final snap = await ref.get();
+
+    final data = {
+      'uid': user.uid,
+      'email': user.email ?? '',
+      'username': user.displayName ?? '',  // tên từ Google
+      'avatarUrl': user.photoURL ?? '',    // avatar từ Google
+      'provider': 'google',
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+
+    if (snap.exists) {
+      await ref.set(data, SetOptions(merge: true));
+    } else {
+      await ref.set({
+        ...data,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
     }
   }
 

@@ -210,7 +210,7 @@
                               style: const TextStyle(fontSize: 12, color: Color(0xFF7A7A7A)),
                             ),
                             GestureDetector(
-                              onTap: () => Navigator.pushReplacement(
+                              onTap: () => Navigator.push(
                                   context, MaterialPageRoute(builder: (context) => const LogIn())),
                               child: const Text(
                                 'Đăng nhập',
@@ -290,7 +290,7 @@
           'role': 'user',
         });
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đăng ký thành công.')));
-        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const LogIn()));
+        Navigator.push(context, MaterialPageRoute(builder: (_) => const LogIn()));
       } on FirebaseAuthException catch (e) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Lỗi: ${e.message}')));
       } catch (e) {

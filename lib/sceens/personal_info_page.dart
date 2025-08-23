@@ -119,7 +119,7 @@ class _PersonalInfoPageState extends State<PersonalInfoPage> {
                           radius: 36,
                           backgroundImage: userAvatar.isNotEmpty
                               ? NetworkImage(userAvatar)
-                              : const AssetImage('images/chiphien.png')
+                              : const AssetImage('images/user_icon.png')
                                     as ImageProvider,
                         ),
                         const SizedBox(width: 14),
@@ -144,22 +144,6 @@ class _PersonalInfoPageState extends State<PersonalInfoPage> {
                               ),
                             ),
                           ],
-                        ),
-                      ],
-                    ),
-                  ),
-                  Positioned(
-                    right: 0,
-                    top: 0,
-                    child: Row(
-                      children: [
-                        IconButton(
-                          icon: const Icon(Icons.notifications_none),
-                          onPressed: () {},
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.settings),
-                          onPressed: () {},
                         ),
                       ],
                     ),

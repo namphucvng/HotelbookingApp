@@ -134,7 +134,7 @@ class _ChangePasswordPageState extends State<ChangePasswordPage> {
                           radius: 36,
                           backgroundImage: userAvatar.isNotEmpty
                               ? NetworkImage(userAvatar)
-                              : const AssetImage('images/chiphien.png')
+                              : const AssetImage('images/user_icon.png')
                                     as ImageProvider,
                         ),
                         const SizedBox(width: 14),

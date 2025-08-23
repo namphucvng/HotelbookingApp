@@ -35,7 +35,7 @@ class _DanhGiaScreenState extends State<DanhGiaScreen> {
         return {
           'user': data['userName'] ?? 'Ẩn danh',
           'comment': data['review'] ?? '',
-          'rating': data['rating'] ?? 0,
+          'rating': (data['rating'] ?? 0).toDouble(),
           'timeAgo': _getTimeAgo(data['createdAt']),
           'avatar': data['avatar'],
         };
@@ -68,9 +68,16 @@ class _DanhGiaScreenState extends State<DanhGiaScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Tất cả đánh giá'),
-        backgroundColor: Colors.deepPurple,
-        foregroundColor: Colors.white,
+        title: const Text(
+          'Tất cả đánh giá',
+          style: TextStyle(
+            color: Colors.deepPurple, // Màu chữ tiêu đề
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        backgroundColor: Colors.white, // Nền trắng
+        iconTheme: const IconThemeData(color: Colors.deepPurple), // Màu nút back
+        elevation: 1, // Đổ bóng nhẹ (tùy chọn)
       ),
       body: allReviews.isEmpty
           ? const Center(child: Text('Chưa có đánh giá nào'))
@@ -79,33 +86,75 @@ class _DanhGiaScreenState extends State<DanhGiaScreen> {
               itemCount: allReviews.length,
               itemBuilder: (context, index) {
                 final review = allReviews[index];
+
+                ImageProvider avatarProvider;
+                if (review['avatar'] != null &&
+                    review['avatar'].toString().startsWith('http')) {
+                  avatarProvider = NetworkImage(review['avatar']);
+                } else {
+                  avatarProvider = const AssetImage('images/user_icon.png');
+                }
+
                 return _reviewTile(
                   review['user'],
                   review['comment'],
                   review['rating'],
                   review['timeAgo'],
-                  review['avatar'] != null
-                      ? (review['avatar'].toString().startsWith('http')
-                          ? NetworkImage(review['avatar'])
-                          : AssetImage(review['avatar']) as ImageProvider)
-                      : const AssetImage('images/default_avatar.png'),
+                  avatarProvider,
                 );
               },
             ),
     );
   }
 
-  Widget _reviewTile(String user, String content, int rating, String timeAgo, ImageProvider avatar) {
-    return ListTile(
-      contentPadding: const EdgeInsets.symmetric(vertical: 8),
-      leading: CircleAvatar(backgroundImage: avatar),
-      title: Text(user),
-      subtitle: Text(content),
-      trailing: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
+  Widget _reviewTile(String user, String comment, double rating, String timeAgo, ImageProvider avatar) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade100, // Nền xám nhạt
+        borderRadius: BorderRadius.circular(12), // Bỏ viền, giữ bo góc
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('$rating/5', style: const TextStyle(fontWeight: FontWeight.bold)),
-          Text(timeAgo, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+          CircleAvatar(backgroundImage: avatar, radius: 24),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  user,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                RatingBarIndicator(
+                  rating: rating,
+                  itemBuilder: (context, _) => const Icon(
+                    Icons.star,
+                    color: Colors.amber,
+                  ),
+                  itemCount: 5,
+                  itemSize: 20.0,
+                  direction: Axis.horizontal,
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  comment,
+                  style: const TextStyle(fontSize: 14),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  timeAgo,
+                  style: const TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );

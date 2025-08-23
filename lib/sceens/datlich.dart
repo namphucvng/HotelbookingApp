@@ -90,10 +90,13 @@ class _DatLichScreenState extends State<DatLichScreen> {
     super.initState();
     _loadUserInfo();
 
-    name = widget.roomData['name'] ?? 'Không có tên';
-    price = widget.roomData['price'] ?? 0;
+    // Đọc an toàn từ roomData (đã được DetailPage truyền kèm)
+    final rd = widget.roomData;
+    name = (rd['name'] ?? 'Không có tên').toString();
+    price = (rd['price'] is num) ? (rd['price'] as num).toInt() : int.tryParse('${rd['price'] ?? 0}') ?? 0;
     formattedPrice = NumberFormat("#,###", "vi_VN").format(price);
   }
+
 
   void _loadUserInfo() async {
     final user = FirebaseAuth.instance.currentUser;
@@ -119,6 +122,12 @@ class _DatLichScreenState extends State<DatLichScreen> {
     if (_checkInDate == null || _checkOutDate == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Vui lòng chọn ngày nhận và ngày trả phòng')),
+      );
+      return false;
+    }
+    if (!_checkOutDate!.isAfter(_checkInDate!)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Ngày trả phải sau ngày nhận ít nhất 1 ngày')),
       );
       return false;
     }
@@ -334,46 +343,76 @@ class _DatLichScreenState extends State<DatLichScreen> {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
-    final checkIn = _checkInDate != null && _checkInTime != null
+    // Đảm bảo ngày hợp lệ trước khi lưu
+    if (!_validateBookingInfo()) return;
+
+    // Gom Date + Time thành DateTime
+    final checkIn = (_checkInDate != null && _checkInTime != null)
         ? DateTime(_checkInDate!.year, _checkInDate!.month, _checkInDate!.day, _checkInTime!.hour, _checkInTime!.minute)
         : null;
 
-    final checkOut = _checkOutDate != null && _checkOutTime != null
+    final checkOut = (_checkOutDate != null && _checkOutTime != null)
         ? DateTime(_checkOutDate!.year, _checkOutDate!.month, _checkOutDate!.day, _checkOutTime!.hour, _checkOutTime!.minute)
         : null;
 
+    // Nếu vì lý do nào đó null, dừng lại (đã có validate, đây là double check)
+    if (checkIn == null || checkOut == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Vui lòng chọn đủ ngày/giờ nhận và trả phòng')),
+      );
+      return;
+    }
+
+    // Lấy thông tin người dùng
     final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
     final userName = userDoc.data()?['username'] ?? 'Ẩn danh';
-    // In dữ liệu debug trước khi lưu
-    print('roomData: ${widget.roomData}');
+
+    // Dữ liệu phòng do DetailPage truyền xuống
+    final rd = widget.roomData;
+    final roomId = (rd['roomId'] ?? '').toString();
+    final roomName = (rd['name'] ?? '').toString();
+    final image = (rd['image'] != null && rd['image'].toString().isNotEmpty)
+        ? rd['image'].toString()
+        : 'https://via.placeholder.com/600x400.png?text=No+Image';
+
+    // Một số trường tham chiếu phụ (nếu có trong hotels doc)
+    final branchId = rd['branchId'];
+    final typeId = rd['typeId'];
+    final location = rd['location'];
+
+    // Debug: xem dữ liệu
+    // debugPrint('Booking roomData: $rd');
 
     await FirebaseFirestore.instance.collection('dat_lich').add({
       'userId': user.uid,
       'userName': userName,
-      'name': _nameController.text,
+      'name': _nameController.text,       // tên hiển thị của người đặt (nếu cho phép sửa)
       'email': _emailController.text,
       'phone': _phoneController.text,
-      'checkIn': checkIn != null ? Timestamp.fromDate(checkIn) : null,
-      'checkOut': checkOut != null ? Timestamp.fromDate(checkOut) : null,
+      'checkIn': Timestamp.fromDate(checkIn),
+      'checkOut': Timestamp.fromDate(checkOut),
       'adults': _adults,
       'children': _children,
       'rooms': _rooms,
+      'nights': _numberOfNights,          // 👉 THÊM: số đêm
+      'pricePerNight': price,             // 👉 THÊM: đơn giá/đêm tại thời điểm đặt
       'totalAmount': _totalAmount,
-      'roomName': widget.roomData['name'],
-      'roomId': widget.roomData['roomId'],
-      'image': (widget.roomData['image'] != null && widget.roomData['image'].toString().isNotEmpty)
-          ? widget.roomData['image']
-          : 'https://via.placeholder.com/600x400.png?text=No+Image',
+      'roomName': roomName,
+      'roomId': roomId,                   // 👉 KHỚP với docId hotels
+      'image': image,
+      // Tham chiếu phụ (nếu có)
+      if (branchId != null) 'branchId': branchId,
+      if (typeId != null) 'typeId': typeId,
+      if (location != null) 'location': location,
       'status': 'pending',
-      'createdAt': Timestamp.now(),
+      'createdAt': FieldValue.serverTimestamp(), // 👉 nên dùng server time
     });
 
-    if (mounted) {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (context) => const BookingSuccessScreen()),
-      );
-    }
+    if (!mounted) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const BookingSuccessScreen()),
+    );
   }
 
   Widget _buildReadOnlyField(TextEditingController controller, String label) {

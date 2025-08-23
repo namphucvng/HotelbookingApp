@@ -32,16 +32,16 @@ Future<Uint8List?> compressImage(File file) async {
 
 // ngoc them phan tien nghi 
 const List<Map<String, dynamic>> amenities = [
-  {"name": "WiFi",      "icon": Icons.wifi},
-  {"name": "Gym",             "icon": Icons.fitness_center},
-  {"name": "Bữa sáng",        "icon": Icons.breakfast_dining},
-  {"name": "Bể bơi",          "icon": Icons.pool},
-  {"name": "Chỗ đậu xe",          "icon": Icons.local_parking},
-  {"name": "Pet Friendly",    "icon": Icons.pets},
-  {"name": "Giặt ủi", "icon": Icons.local_laundry_service}, 
-  {"name": "Bar", "icon": Icons.local_bar},  
+  {"name": "Wifi", "icon": Icons.wifi},
+  {"name": "Gym", "icon": Icons.fitness_center},
+  {"name": "Bữa sáng", "icon": Icons.breakfast_dining},
+  {"name": "Bể bơi", "icon": Icons.pool},
+  {"name": "Chỗ đậu xe", "icon": Icons.local_parking},
+  {"name": "Pet Friendly", "icon": Icons.pets},
+  {"name": "Giặt ủi", "icon": Icons.local_laundry_service},
+  {"name": "Bar", "icon": Icons.local_bar},
   {"name": "Xe đưa đón", "icon": Icons.airport_shuttle},
-  {"name": "Spa", "icon": Icons.spa},           
+  {"name": "Spa", "icon": Icons.spa},
 ];
 
 
@@ -124,7 +124,10 @@ class _SearchBarState extends State<SearchBar> {
         MaterialPageRoute(
           builder: (_) => SearchResultPage(searchKeyword: keyword),
         ),
-      );
+      ).then((_) {
+        // Clear khi quay lại
+        _controller.clear();
+      });
     }
   }
 
@@ -285,8 +288,16 @@ class StaysTabContent extends StatelessWidget {
             final rooms = branchRoomsMap[branchId] ?? [];
 
             final filteredRooms = rooms.where((roomDoc) {
-              final roomName = (roomDoc.data()['name'] ?? '').toString().toLowerCase();
-              return roomName.contains(searchKeyword);
+              final roomData = roomDoc.data();
+              // Chuẩn hóa dữ liệu tìm kiếm
+              final roomName = (roomData['name'] ?? '').toString().toLowerCase();
+              final roomType = (roomData['type'] ?? '').toString().toLowerCase();
+              final branchNameLower = branchName.toLowerCase();
+
+              // Kiểm tra từ khóa có xuất hiện trong bất kỳ trường nào
+              return roomName.contains(searchKeyword) ||
+                    roomType.contains(searchKeyword) ||
+                    branchNameLower.contains(searchKeyword);
             }).toList();
 
             final List<StayCard> cards = filteredRooms.map((roomDoc) {
@@ -299,7 +310,7 @@ class StaysTabContent extends StatelessWidget {
                 imagePath: imageUrl,
                 title: roomData['name'] ?? '',
                 price: roomData['price']?.toString() ?? '',
-                rating: roomData['rating']?.toString() ?? '0.0',
+                roomId: roomId, // Truyền roomId vào để query đánh giá
                 isLiked: Provider.of<FavoritesProvider>(context).isFavorite(roomId),
                 onTap: () {
                   Navigator.push(
@@ -327,11 +338,12 @@ class StaysTabContent extends StatelessWidget {
               title: branchTitle,
               cards: cards.isNotEmpty
                   ? cards
-                  : [const StayCard(
+                  : [StayCard( // Sửa từ const StayCard thành StayCard
                       imagePath: '',
                       title: 'Chưa có phòng',
                       price: '',
-                      rating: '',
+                      roomId: '', // Thêm roomId rỗng
+                      isLiked: false, // Thêm giá trị mặc định
                     )],
               branchId: branchId,
               branchName: branchName,
@@ -443,7 +455,7 @@ class StayCard extends StatelessWidget {
   final String imagePath;
   final String title;
   final String price;
-  final String rating;
+  final String roomId;
   final bool isLiked;
   final VoidCallback? onTap;
   final VoidCallback? onLikePressed;
@@ -453,7 +465,7 @@ class StayCard extends StatelessWidget {
     required this.imagePath,
     required this.title,
     required this.price,
-    required this.rating,
+    required this.roomId,
     this.isLiked = false,
     this.onTap,
     this.onLikePressed,
@@ -461,98 +473,136 @@ class StayCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector( 
-      onTap: onTap,
-      child: SizedBox(
-        width: 200,
-        height: 250,
-        child: Card(
-          color: const Color.fromARGB(255, 248, 247, 253),
-          elevation: 1,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          clipBehavior: Clip.antiAlias,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Stack(
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('danh_gia')
+          .where('roomId', isEqualTo: roomId)
+          .snapshots(),
+      builder: (context, snapshot) {
+        // Tính toán rating trung bình
+        double averageRating = 0;
+        int reviewCount = 0;
+
+        if (snapshot.hasData && snapshot.data!.docs.isNotEmpty) {
+          double totalRating = 0;
+          reviewCount = snapshot.data!.docs.length;
+          
+          for (var doc in snapshot.data!.docs) {
+            final rating = (doc.data() as Map<String, dynamic>)['rating'] as num? ?? 0;
+            totalRating += rating.toDouble();
+          }
+          
+          averageRating = totalRating / reviewCount;
+        }
+
+        return GestureDetector(
+          onTap: onTap,
+          child: SizedBox(
+            width: 200,
+            height: 250,
+            child: Card(
+              color: const Color.fromARGB(255, 248, 247, 253),
+              elevation: 1,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  CachedNetworkImage(
-                    imageUrl: imagePath,
-                    width: 200,
-                    height: 140,
-                    fit: BoxFit.cover,
-                    placeholder: (context, url) => Container(
-                      color: Colors.grey.shade300,
-                      child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
-                    ),
-                    errorWidget: (context, url, error) => const Icon(Icons.broken_image),
-                  ),
-                  Positioned(
-                    top: 8,
-                    right: 8,
-                    child: GestureDetector(
-                      onTap: onLikePressed,
-                      child: Container(
-                        width: 28,
-                        height: 28,
-                        decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.8),
-                          shape: BoxShape.circle,
+                  Stack(
+                    children: [
+                      CachedNetworkImage(
+                        imageUrl: imagePath,
+                        width: 200,
+                        height: 140,
+                        fit: BoxFit.cover,
+                        placeholder: (context, url) => Container(
+                          color: Colors.grey[300],
                         ),
-                        child: Icon(
-                          isLiked ? Icons.favorite : Icons.favorite_border,
-                          size: 16,
-                          color: isLiked ? Colors.purple : Colors.purple[200],
+                        errorWidget: (context, url, error) => const Icon(Icons.broken_image),
+                      ),
+                      Positioned(
+                        top: 8,
+                        right: 8,
+                        child: GestureDetector(
+                          onTap: onLikePressed,
+                          child: Container(
+                            width: 28,
+                            height: 28,
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.8),
+                              shape: BoxShape.circle,
+                            ),
+                            child: Icon(
+                              isLiked ? Icons.favorite : Icons.favorite_border,
+                              size: 16,
+                              color: isLiked ? Colors.purple : Colors.purple[200],
+                            ),
+                          ),
                         ),
                       ),
+                    ],
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '${formatCurrency(price)} VND/đêm',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            const Icon(Icons.star, color: Colors.amber, size: 16),
+                            const SizedBox(width: 4),
+                            Text(
+                              averageRating.toStringAsFixed(1),
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            if (reviewCount > 0) ...[
+                              const SizedBox(width: 4),
+                              Text(
+                                '($reviewCount)',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey[600],
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ],
                     ),
                   ),
                 ],
               ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
-                          ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      '${formatCurrency(price)} VND/đêm',
-                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                            fontWeight: FontWeight.bold,
-                          ),
-                    ),
-                    const SizedBox(height: 2),
-                    Row(
-                      children: [
-                        const Text('★', style: TextStyle(color: Colors.amber)),
-                        const SizedBox(width: 4),
-                        Text(
-                          rating,
-                          style: Theme.of(context).textTheme.labelSmall?.copyWith(color: Colors.black),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ],
+            ),
           ),
-        )
-      ),
+        );
+      },
     );
   }
 }
 
-//ngocthem
 class ExperiencesSection extends StatefulWidget {
   const ExperiencesSection({super.key});
 
@@ -563,66 +613,249 @@ class ExperiencesSection extends StatefulWidget {
 class _ExperiencesSectionState extends State<ExperiencesSection> {
   final Set<String> _selected = {};
 
+  void _clearSelection() {
+    setState(() => _selected.clear());
+  }
+
+  void _search() {
+    if (_selected.isEmpty) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => AmenitySearchResults(
+          selectedAmenities: _selected.toList(),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(16),
-      child: GridView.builder(
-        shrinkWrap: true,
-        physics: const NeverScrollableScrollPhysics(),
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 3,
-          mainAxisSpacing: 16,
-          crossAxisSpacing: 16,
-          childAspectRatio: 1,
+    return Column(
+      children: [
+        // Thanh hành động: Bỏ chọn + Tìm kiếm
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+          child: Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: _selected.isEmpty ? null : _clearSelection,
+                  child: const Text('Bỏ chọn'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: _selected.isEmpty ? null : _search,
+                  icon: const Icon(Icons.search),
+                  label: Text(
+                    _selected.isEmpty
+                        ? 'Tìm kiếm'
+                        : 'Tìm (${_selected.length})',
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
-        itemCount: amenities.length,
-        itemBuilder: (context, index) {
-          final amenity = amenities[index];
-          final name = amenity['name'];
-          final icon = amenity['icon'];
-          final isSelected = _selected.contains(name);
 
-          return GestureDetector(
-            onTap: () {
-              setState(() {
-                if (isSelected) {
-                  _selected.remove(name);
-                } else {
-                  _selected.add(name);
-                }
-              });
-            },
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: Colors.deepPurple.shade50,
-                    border: isSelected
-                        ? Border.all(color: Colors.deepPurple.shade200, width: 2)
-                        : null,
-                  ),
-                  padding: const EdgeInsets.all(12),
-                  child: Icon(
-                    icon,
-                    color: Colors.deepPurple,
-                    size: isSelected ? 30 : 24,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  name,
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                    color: Colors.black,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-              ],
+        // Lưới tiện nghi
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 3,
+              mainAxisSpacing: 16,
+              crossAxisSpacing: 16,
+              childAspectRatio: 1,
             ),
+            itemCount: amenities.length,
+            itemBuilder: (context, index) {
+              final amenity = amenities[index];
+              final String name = amenity['name'] as String;
+              final IconData icon = amenity['icon'] as IconData;
+              final bool isSelected = _selected.contains(name);
+
+              return GestureDetector(
+                onTap: () {
+                  setState(() {
+                    if (isSelected) {
+                      _selected.remove(name);
+                    } else {
+                      _selected.add(name);
+                    }
+                  });
+                },
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: Colors.deepPurple.shade50,
+                        border: isSelected
+                            ? Border.all(
+                                color: Colors.deepPurple.shade200, width: 2)
+                            : null,
+                      ),
+                      padding: const EdgeInsets.all(12),
+                      child: Icon(
+                        icon,
+                        color: Colors.deepPurple,
+                        size: isSelected ? 30 : 24,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      name,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight:
+                            isSelected ? FontWeight.bold : FontWeight.normal,
+                        color: Colors.black,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class AmenitySearchResults extends StatelessWidget {
+  final List<String> selectedAmenities;
+  const AmenitySearchResults({super.key, required this.selectedAmenities});
+
+  bool _hasAllAmenities(Map<String, dynamic> data) {
+    final am = (data['amenities'] as List<dynamic>? ?? []).map((e) => e.toString()).toSet();
+    return selectedAmenities.every(am.contains);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final base = FirebaseFirestore.instance.collection('hotels');
+    final Query<Map<String, dynamic>> q = (selectedAmenities.isEmpty)
+        ? base
+        : base.where('amenities', arrayContainsAny: selectedAmenities);
+
+    return Scaffold(
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        elevation: 0,
+        iconTheme: const IconThemeData(color: Colors.deepPurple),
+        title: const Text(
+          'Kết quả theo tiện nghi',
+          style: TextStyle(
+            color: Colors.deepPurple,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ),
+      body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+        stream: q.snapshots(),
+        builder: (context, snap) {
+          if (snap.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (snap.hasError) {
+            return Center(child: Text('Lỗi: ${snap.error}'));
+          }
+
+          final docs = snap.data?.docs ?? [];
+          final rooms = docs.where((d) => _hasAllAmenities(d.data())).toList();
+
+          if (rooms.isEmpty) {
+            return const Center(child: Text('Không tìm thấy phòng phù hợp.'));
+          }
+
+          return ListView.builder(
+            padding: const EdgeInsets.all(12),
+            itemCount: rooms.length,
+            itemBuilder: (context, index) {
+              final roomDoc = rooms[index];
+              final roomData = roomDoc.data();
+              final List<String> imageUrls =
+                  (roomData['imageUrls'] as List<dynamic>? ?? [])
+                      .map((e) => e.toString())
+                      .toList();
+              final imageUrl = imageUrls.isNotEmpty ? imageUrls.first : '';
+
+              return Card(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: InkWell(
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => DetailPage(
+                          roomData: {
+                            ...roomData,
+                            'roomId': roomDoc.id,
+                          },
+                        ),
+                      ),
+                    );
+                  },
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      imageUrl.isNotEmpty
+                          ? CachedNetworkImage(
+                              imageUrl: imageUrl,
+                              height: 180,
+                              width: double.infinity,
+                              fit: BoxFit.cover,
+                              placeholder: (context, url) => Container(
+                                height: 180,
+                                color: Colors.grey[200],
+                              ),
+                              errorWidget: (context, url, error) =>
+                                  const Icon(Icons.broken_image, size: 80),
+                            )
+                          : Container(
+                              height: 180,
+                              color: Colors.grey[200],
+                              child: const Icon(Icons.broken_image, size: 80),
+                            ),
+                      Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              roomData['name'] ?? 'Không tên',
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              '${NumberFormat("#,###", "vi_VN").format(int.tryParse(roomData['price']?.toString() ?? "0") ?? 0).replaceAll(",", ".")} VND/đêm',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w600,
+                                color: Colors.deepPurple,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
           );
         },
       ),

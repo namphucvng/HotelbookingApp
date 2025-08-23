@@ -23,10 +23,38 @@ class _DinhViScreenState extends State<DinhViScreen> {
 
   void _openGoogleMaps() async {
     if (_destination != null && _destination!.isNotEmpty) {
-      final uri = Uri.parse(
-          "https://www.google.com/maps/dir/?api=1&destination=${Uri.encodeComponent(_destination!)}");
-      if (await canLaunchUrl(uri)) {
-        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      try {
+        // Chuyển địa chỉ sang tọa độ
+        List<Location> locations = await locationFromAddress(_destination!);
+        if (locations.isNotEmpty) {
+          final lat = locations.first.latitude;
+          final lng = locations.first.longitude;
+
+          /// Sử dụng `geo:` URI để mở app bản đồ mặc định với chỉ đường
+          /// Mở chỉ đường từ vị trí hiện tại tới đích
+          final geoUri = Uri.parse("geo:0,0?q=$lat,$lng(${Uri.encodeComponent(_destination!)})");
+
+          /// Fallback dùng OpenStreetMap nếu không mở được geo:
+          final osmUri = Uri.parse("https://www.openstreetmap.org/directions?engine=fossgis_osrm_car&route=~$lat,$lng");
+
+          if (await canLaunchUrl(geoUri)) {
+            await launchUrl(geoUri);
+          } else if (await canLaunchUrl(osmUri)) {
+            await launchUrl(osmUri, mode: LaunchMode.externalApplication);
+          } else {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text("Không thể mở bản đồ. Vui lòng kiểm tra thiết bị hoặc cài ứng dụng bản đồ.")),
+            );
+          }
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Không tìm thấy vị trí.")),
+          );
+        }
+      } catch (e) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Lỗi định vị: $e")),
+        );
       }
     } else {
       ScaffoldMessenger.of(context).showSnackBar(

@@ -5,6 +5,7 @@ import 'package:bookingapp/models/favorite_provider.dart';
 import 'package:bookingapp/pages/detail_page.dart'; 
 import 'package:intl/intl.dart';
 import 'package:bookingapp/pages/stay_card.dart';
+import 'package:cached_network_image/cached_network_image.dart'; 
 
 String formatCurrency(String priceString) {
   try {
@@ -16,91 +17,150 @@ String formatCurrency(String priceString) {
   }
 }
 
-class SearchResultPage extends StatelessWidget {
+class SearchResultPage extends StatefulWidget {
   final String searchKeyword;
 
   const SearchResultPage({super.key, required this.searchKeyword});
 
   @override
-  Widget build(BuildContext context) {
-    final firestore = FirebaseFirestore.instance;
+  State<SearchResultPage> createState() => _SearchResultPageState();
+}
 
+class _SearchResultPageState extends State<SearchResultPage> {
+  late Future<QuerySnapshot> _roomsFuture;
+  late Future<QuerySnapshot> _branchesFuture;
+  Map<String, String> _branchNames = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _roomsFuture = FirebaseFirestore.instance.collection('hotels').get();
+    _branchesFuture = FirebaseFirestore.instance.collection('branches').get();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 1,
-        iconTheme: const IconThemeData(color: Colors.deepPurple), 
-        title: const Text(
-          'Kết quả tìm kiếm',
-          style: TextStyle(
-            color: Colors.deepPurple,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
+        title: Text('Kết quả tìm kiếm: "${widget.searchKeyword}"'),
       ),
       body: FutureBuilder(
-        future: Future.wait([
-          firestore.collection('branches').get(),
-          firestore.collection('hotels').get(),
-        ]),
-        builder: (context, AsyncSnapshot<List<QuerySnapshot<Map<String, dynamic>>>> snapshot) {
+        future: Future.wait([_roomsFuture, _branchesFuture]),
+        builder: (context, AsyncSnapshot<List<dynamic>> snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
 
           if (!snapshot.hasData) {
-            return const Center(child: Text('Không có dữ liệu'));
+            return const Center(child: Text('Lỗi tải dữ liệu'));
           }
 
-          final hotels = snapshot.data![1].docs;
-          final favoritesProvider = Provider.of<FavoritesProvider>(context);
+          final roomsSnapshot = snapshot.data![0] as QuerySnapshot;
+          final branchesSnapshot = snapshot.data![1] as QuerySnapshot;
 
-          final matchedRooms = hotels.where((roomDoc) {
-            final name = (roomDoc.data()['name'] ?? '').toString().toLowerCase();
-            return name.contains(searchKeyword.toLowerCase());
+          // Tạo map branchId -> branchName
+          _branchNames = {
+            for (var branch in branchesSnapshot.docs)
+              branch.id: branch['name'] ?? 'Không tên'
+          };
+
+          final filteredRooms = roomsSnapshot.docs.where((roomDoc) {
+            final roomData = roomDoc.data() as Map<String, dynamic>;
+            final keyword = widget.searchKeyword.toLowerCase();
+            
+            final roomName = (roomData['name'] ?? '').toString().toLowerCase();
+            final roomType = (roomData['type'] ?? '').toString().toLowerCase();
+            final branchId = roomData['branchId']?.toString() ?? '';
+            final branchName = _branchNames[branchId]?.toLowerCase() ?? '';
+
+            return roomName.contains(keyword) ||
+                  roomType.contains(keyword) ||
+                  branchName.contains(keyword);
           }).toList();
 
-          if (matchedRooms.isEmpty) {
-            return const Center(child: Text('Không tìm thấy phòng phù hợp'));
+          if (filteredRooms.isEmpty) {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.search_off, size: 48, color: Colors.grey),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Không tìm thấy kết quả phù hợp',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  Text(
+                    'Thử với từ khóa khác hoặc ít cụ thể hơn',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+              ),
+            );
           }
 
           return ListView.builder(
-            padding: const EdgeInsets.all(16),
-            itemCount: matchedRooms.length,
+            padding: const EdgeInsets.all(12),
+            itemCount: filteredRooms.length,
             itemBuilder: (context, index) {
-              final roomDoc = matchedRooms[index];
-              final roomData = roomDoc.data();
-              final roomId = roomDoc.id;
-
+              final roomDoc = filteredRooms[index];
+              final roomData = roomDoc.data() as Map<String, dynamic>;
               final imageUrls = roomData['imageUrls'] ?? [];
               final imageUrl = imageUrls.isNotEmpty ? imageUrls[0] : '';
+              final branchId = roomData['branchId'] ?? '';
+              final branchName = _branchNames[branchId] ?? 'Không rõ chi nhánh';
 
-              final isFavorite = favoritesProvider.isFavorite(roomId);
-
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 16),
-                child: StayCard(
-                  imagePath: imageUrl,
-                  title: roomData['name'] ?? '',
-                  price: roomData['price']?.toString() ?? '',
-                  rating: roomData['rating']?.toString() ?? '0.0',
-                  isLiked: isFavorite,
+              return Card(
+                margin: const EdgeInsets.only(bottom: 16),
+                child: ListTile(
+                  contentPadding: const EdgeInsets.all(12),
+                  leading: ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: CachedNetworkImage(
+                      imageUrl: imageUrl,
+                      width: 80,
+                      height: 80,
+                      fit: BoxFit.cover,
+                      placeholder: (context, url) => Container(
+                        color: Colors.grey[200],
+                        width: 80,
+                        height: 80,
+                      ),
+                      errorWidget: (context, url, error) => Container(
+                        color: Colors.grey[200],
+                        width: 80,
+                        height: 80,
+                        child: const Icon(Icons.broken_image),
+                      ),
+                    ),
+                  ),
+                  title: Text(roomData['name'] ?? 'Không tên'),
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Chi nhánh: $branchName'),
+                      Text('Loại: ${roomData['type'] ?? 'Không rõ'}'),
+                      Text(
+                        '${formatCurrency(roomData['price']?.toString() ?? '0')} VND/đêm',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Colors.deepPurple,
+                        ),
+                      ),
+                    ],
+                  ),
+                  trailing: const Icon(Icons.chevron_right),
                   onTap: () {
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (_) => DetailPage(roomData: {
-                          ...roomData,
-                          'roomId': roomId,
-                        }),
+                        builder: (_) => DetailPage(
+                          roomData: {
+                            ...roomData,
+                            'roomId': roomDoc.id,
+                          },
+                        ),
                       ),
                     );
-                  },
-                  onLikePressed: () {
-                    favoritesProvider.toggleFavorite({
-                      ...roomData,
-                      'roomId': roomId,
-                    });
                   },
                 ),
               );

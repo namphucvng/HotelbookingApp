@@ -30,7 +30,10 @@ class _AddHotelRoomPageState extends State<AddHotelRoomPage> {
   final List<String> selectedAmenities = [];
   final List<Map<String, dynamic>> foodList = [];
 
-  final List<String> allAmenities = ['Wifi', 'Gym', 'Bữa sáng', 'Bể bơi', 'Chỗ đậu xe', 'Pet Friendly', 'Giặt ủi', 'Bar', 'Xen đưa đón', 'Spa'];
+  final List<String> allAmenities = [
+    'Wifi', 'Gym', 'Bữa sáng', 'Bể bơi', 'Chỗ đậu xe',
+    'Pet Friendly', 'Giặt ủi', 'Bar', 'Xe đưa đón', 'Spa',
+  ];
 
   List<DocumentSnapshot> _roomTypes = [];
   List<DocumentSnapshot> _branches = [];
@@ -229,14 +232,7 @@ class _AddHotelRoomPageState extends State<AddHotelRoomPage> {
           .limit(1)
           .get();
 
-      int newRoomId = 1;
-      if (snapshot.docs.isNotEmpty) {
-        final maxRoomId = int.tryParse(snapshot.docs.first['roomId'].toString()) ?? 0;
-        newRoomId = maxRoomId + 1;
-      }
-
       await _firestore.collection('hotels').add({
-        'roomId': newRoomId,
         'name': nameController.text.trim(),
         'location': locationController.text.trim(),
         'branch': selectedBranch['name'],

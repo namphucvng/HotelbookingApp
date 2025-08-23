@@ -15,28 +15,29 @@ class _DanhGiaPageState extends State<DanhGiaPage> {
   final TextEditingController _reviewController = TextEditingController();
   double _rating = 3.0;
   bool _isSubmitting = false;
-  String _userName = '...'; // Hiển thị tên người dùng trong UI
+  String _userName = '...';
 
   @override
   void initState() {
     super.initState();
-    _userName = widget.bookingData['userName'] ?? 'Ẩn danh';
+    // Ưu tiên tên đi kèm booking (History đã truyền),
+    // fallback sẽ lấy từ users collection (username)
+    _userName = (widget.bookingData['userName'] ?? 'Ẩn danh').toString();
+    if (_userName == 'Ẩn danh') {
+      _loadUserName(); // không chặn UI
+    }
   }
 
   Future<void> _loadUserName() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
-
     try {
       final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
-      final name = userDoc.data()?['name'] ?? 'Ẩn danh';
-      setState(() {
-        _userName = name;
-      });
-    } catch (e) {
-      setState(() {
-        _userName = 'Ẩn danh';
-      });
+      final data = userDoc.data();
+      final name = (data?['username'] ?? data?['name'] ?? 'Ẩn danh').toString();
+      if (mounted) setState(() => _userName = name);
+    } catch (_) {
+      if (mounted) setState(() => _userName = 'Ẩn danh');
     }
   }
 
@@ -50,36 +51,50 @@ class _DanhGiaPageState extends State<DanhGiaPage> {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
-    final photoUrl = user.photoURL ?? '';
+    if (_rating < 1.0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Vui lòng chọn ít nhất 1 sao')),
+      );
+      return;
+    }
 
-    setState(() {
-      _isSubmitting = true;
-    });
+    setState(() => _isSubmitting = true);
 
     try {
+      final bookingId = (widget.bookingData['id'] ?? '').toString();
+      final roomId = (widget.bookingData['roomId'] ?? '').toString();
+      final roomName = (widget.bookingData['roomName'] ?? 'Không rõ').toString();
+
+      // 1) Lưu đánh giá
       await FirebaseFirestore.instance.collection('danh_gia').add({
-        'bookingId': widget.bookingData['id'],
+        'bookingId': bookingId,
         'userId': user.uid,
-        'roomId': widget.bookingData['roomId'].toString(),
-        'roomName': widget.bookingData['roomName'],
+        'roomId': roomId,
+        'roomName': roomName,
         'rating': _rating,
         'review': _reviewController.text.trim(),
-        'createdAt': Timestamp.now(),
+        'createdAt': FieldValue.serverTimestamp(), // dùng giờ server
         'userName': _userName,
-        'avatar': photoUrl,
+        'avatar': user.photoURL ?? '',
       });
 
-      if (mounted) Navigator.pop(context, true);
+      // 2) Đánh dấu booking đã được đánh giá (để History đỡ phải truy vấn phụ)
+      if (bookingId.isNotEmpty) {
+        await FirebaseFirestore.instance
+            .collection('dat_lich')
+            .doc(bookingId)
+            .update({'isRated': true});
+      }
+
+      if (!mounted) return;
+      Navigator.pop(context, true);
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Lỗi khi gửi đánh giá: $e')),
       );
     } finally {
-      if (mounted) {
-        setState(() {
-          _isSubmitting = false;
-        });
-      }
+      if (mounted) setState(() => _isSubmitting = false);
     }
   }
 
@@ -87,17 +102,10 @@ class _DanhGiaPageState extends State<DanhGiaPage> {
     return Row(
       children: List.generate(5, (index) {
         final starIndex = index + 1;
+        final filled = starIndex <= _rating.round();
         return IconButton(
-          icon: Icon(
-            starIndex <= _rating ? Icons.star : Icons.star_border,
-            color: Colors.amber,
-            size: 32,
-          ),
-          onPressed: () {
-            setState(() {
-              _rating = starIndex.toDouble();
-            });
-          },
+          icon: Icon(filled ? Icons.star : Icons.star_border, color: Colors.amber, size: 32),
+          onPressed: () => setState(() => _rating = starIndex.toDouble()),
         );
       }),
     );
@@ -105,7 +113,7 @@ class _DanhGiaPageState extends State<DanhGiaPage> {
 
   @override
   Widget build(BuildContext context) {
-    final roomName = widget.bookingData['roomName'] ?? 'Không rõ';
+    final roomName = (widget.bookingData['roomName'] ?? 'Không rõ').toString();
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -125,15 +133,9 @@ class _DanhGiaPageState extends State<DanhGiaPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Phòng: $roomName',
-              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-            ),
+            Text('Phòng: $roomName', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
-            Text(
-              'Người đánh giá: $_userName',
-              style: const TextStyle(fontSize: 16, color: Colors.black87),
-            ),
+            Text('Người đánh giá: $_userName', style: const TextStyle(fontSize: 16, color: Colors.black87)),
             const SizedBox(height: 24),
 
             const Text('Chất lượng phòng', style: TextStyle(fontSize: 16)),
